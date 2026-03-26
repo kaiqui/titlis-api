@@ -4,145 +4,404 @@ import io.titlis.api.database.DatabaseFactory.dbQuery
 import io.titlis.api.database.tables.*
 import io.titlis.api.domain.NotificationSentEvent
 import io.titlis.api.domain.ScorecardEvaluatedEvent
-import kotlinx.datetime.toKotlinInstant
+import io.titlis.api.domain.ValidationResultData
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.upsert
-import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 
 class ScorecardRepository {
 
-    // Resolve k8s_uid (string UUID do evento) para o workload_id interno (Long BIGINT IDENTITY).
-    // O workload deve existir antes de receber scorecard — inserido pelo WorkloadRepository
-    // ou pela primeira chamada ao endpoint de upsert de workload.
-    private fun resolveWorkloadId(k8sUid: String): Long =
-        Workloads
-            .select(Workloads.workloadId)
-            .where { Workloads.k8sUid eq k8sUid }
-            .singleOrNull()?.get(Workloads.workloadId)
-            ?: error("Workload não encontrado para k8s_uid=$k8sUid")
-
     suspend fun upsertScorecard(event: ScorecardEvaluatedEvent) = dbQuery {
-        val workloadId = resolveWorkloadId(event.workloadId)
-        val now = Instant.now().toKotlinInstant()
+        val workloadId = ensureWorkload(event)
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+        val normalizedComplianceStatus = event.complianceStatus.uppercase()
 
-        // SCD Type 4 — a aplicação gerencia o histórico antes do upsert (sem triggers DML).
-        // Se já existe scorecard e a versão mudou, arquiva o estado anterior em app_scorecard_history.
         val existing = AppScorecards
-            .select(AppScorecards.appScorecardId, AppScorecards.version,
-                    AppScorecards.overallScore, AppScorecards.complianceStatus,
-                    AppScorecards.totalRules, AppScorecards.passedRules,
-                    AppScorecards.failedRules, AppScorecards.criticalFailures,
-                    AppScorecards.errorCount, AppScorecards.warningCount,
-                    AppScorecards.evaluatedAt, AppScorecards.k8sEventType)
+            .select(
+                AppScorecards.appScorecardId,
+                AppScorecards.version,
+                AppScorecards.overallScore,
+                AppScorecards.complianceStatus,
+                AppScorecards.totalRules,
+                AppScorecards.passedRules,
+                AppScorecards.failedRules,
+                AppScorecards.criticalFailures,
+                AppScorecards.errorCount,
+                AppScorecards.warningCount,
+                AppScorecards.evaluatedAt,
+                AppScorecards.k8sEventType,
+            )
             .where { AppScorecards.workloadId eq workloadId }
             .singleOrNull()
 
-        if (existing != null && existing[AppScorecards.version] != event.scorecardVersion) {
+        if (
+            existing != null &&
+            existing[AppScorecards.version] != event.scorecardVersion
+        ) {
             val prevScorecardId = existing[AppScorecards.appScorecardId]
-            val pillarSnap = PillarScores
-                .select(PillarScores.pillar, PillarScores.pillarScore,
-                        PillarScores.passedChecks, PillarScores.failedChecks,
-                        PillarScores.weightedScore)
+            val pillarRows = PillarScores
+                .select(
+                    PillarScores.pillar,
+                    PillarScores.pillarScore,
+                    PillarScores.passedChecks,
+                    PillarScores.failedChecks,
+                    PillarScores.weightedScore,
+                )
                 .where { PillarScores.appScorecardId eq prevScorecardId }
-                .map { r ->
-                    mapOf("pillar" to r[PillarScores.pillar],
-                          "score" to r[PillarScores.pillarScore],
-                          "passed_checks" to r[PillarScores.passedChecks],
-                          "failed_checks" to r[PillarScores.failedChecks],
-                          "weighted_score" to r[PillarScores.weightedScore])
-                }
+                .toList()
+            val validationRows = ValidationResults
+                .innerJoin(ValidationRules)
+                .select(
+                    ValidationRules.ruleId,
+                    ValidationRules.pillar,
+                    ValidationRules.ruleSeverity,
+                    ValidationResults.rulePassed,
+                    ValidationResults.resultMessage,
+                    ValidationResults.actualValue,
+                )
+                .where { ValidationResults.appScorecardId eq prevScorecardId }
+                .toList()
 
             AppScorecardHistory.insert {
-                it[AppScorecardHistory.workloadId]        = workloadId
-                it[AppScorecardHistory.scorecardVersion]  = existing[AppScorecards.version]
-                it[AppScorecardHistory.overallScore]      = existing[AppScorecards.overallScore]
-                it[AppScorecardHistory.complianceStatus]  = existing[AppScorecards.complianceStatus]
-                it[AppScorecardHistory.totalRules]        = existing[AppScorecards.totalRules]
-                it[AppScorecardHistory.passedRules]       = existing[AppScorecards.passedRules]
-                it[AppScorecardHistory.failedRules]       = existing[AppScorecards.failedRules]
-                it[AppScorecardHistory.criticalFailures]  = existing[AppScorecards.criticalFailures]
-                it[AppScorecardHistory.errorCount]        = existing[AppScorecards.errorCount]
-                it[AppScorecardHistory.warningCount]      = existing[AppScorecards.warningCount]
-                it[AppScorecardHistory.pillarScores]      = org.jetbrains.exposed.sql.json.json(pillarSnap)
-                it[AppScorecardHistory.validationResults] = org.jetbrains.exposed.sql.json.json(emptyList<Any>())
-                it[AppScorecardHistory.evaluatedAt]       = existing[AppScorecards.evaluatedAt]
-                it[AppScorecardHistory.k8sEventType]      = existing[AppScorecards.k8sEventType]
-                it[AppScorecardHistory.createdAt]         = now
+                it[AppScorecardHistory.workloadId] = workloadId
+                it[AppScorecardHistory.scorecardVersion] =
+                    existing[AppScorecards.version]
+                it[AppScorecardHistory.overallScore] =
+                    existing[AppScorecards.overallScore]
+                it[AppScorecardHistory.complianceStatus] =
+                    existing[AppScorecards.complianceStatus]
+                it[AppScorecardHistory.totalRules] =
+                    existing[AppScorecards.totalRules]
+                it[AppScorecardHistory.passedRules] =
+                    existing[AppScorecards.passedRules]
+                it[AppScorecardHistory.failedRules] =
+                    existing[AppScorecards.failedRules]
+                it[AppScorecardHistory.criticalFailures] =
+                    existing[AppScorecards.criticalFailures]
+                it[AppScorecardHistory.errorCount] =
+                    existing[AppScorecards.errorCount]
+                it[AppScorecardHistory.warningCount] =
+                    existing[AppScorecards.warningCount]
+                it[AppScorecardHistory.pillarScores] =
+                    buildPillarSnapshotJson(pillarRows).toString()
+                it[AppScorecardHistory.validationResults] =
+                    buildValidationSnapshotJson(validationRows).toString()
+                it[AppScorecardHistory.evaluatedAt] =
+                    existing[AppScorecards.evaluatedAt]
+                it[AppScorecardHistory.k8sEventType] =
+                    existing[AppScorecards.k8sEventType]
+                it[AppScorecardHistory.createdAt] = now
+            }
+
+            pillarRows.forEach { row ->
+                PillarScoreHistory.insert {
+                    it[PillarScoreHistory.workloadId] = workloadId
+                    it[PillarScoreHistory.scorecardVersion] =
+                        existing[AppScorecards.version]
+                    it[PillarScoreHistory.pillar] = row[PillarScores.pillar]
+                    it[PillarScoreHistory.pillarScore] =
+                        row[PillarScores.pillarScore]
+                    it[PillarScoreHistory.passedChecks] =
+                        row[PillarScores.passedChecks]
+                    it[PillarScoreHistory.failedChecks] =
+                        row[PillarScores.failedChecks]
+                    it[PillarScoreHistory.weightedScore] =
+                        row[PillarScores.weightedScore]
+                    it[PillarScoreHistory.evaluatedAt] =
+                        existing[AppScorecards.evaluatedAt]
+                    it[PillarScoreHistory.createdAt] = now
+                }
             }
         }
 
-        // Upsert scorecard atual (UNIQUE workload_id — SCD Type 4 "current table")
         AppScorecards.upsert(AppScorecards.workloadId) {
             it[AppScorecards.workloadId] = workloadId
-            it[version]          = event.scorecardVersion
-            it[overallScore]     = event.overallScore.toBigDecimal()
-            it[complianceStatus] = event.complianceStatus
-            it[totalRules]       = event.totalRules
-            it[passedRules]      = event.passedRules
-            it[failedRules]      = event.failedRules
-            it[criticalFailures] = event.criticalFailures
-            it[errorCount]       = event.errorCount
-            it[warningCount]     = event.warningCount
-            it[evaluatedAt]      = Instant.parse(event.evaluatedAt).toKotlinInstant()
-            it[k8sEventType]     = event.k8sEventType
-            it[updatedAt]        = now
+            it[AppScorecards.version] = event.scorecardVersion
+            it[AppScorecards.overallScore] = event.overallScore.toBigDecimal()
+            it[AppScorecards.complianceStatus] = normalizedComplianceStatus
+            it[AppScorecards.totalRules] = event.totalRules
+            it[AppScorecards.passedRules] = event.passedRules
+            it[AppScorecards.failedRules] = event.failedRules
+            it[AppScorecards.criticalFailures] = event.criticalFailures
+            it[AppScorecards.errorCount] = event.errorCount
+            it[AppScorecards.warningCount] = event.warningCount
+            it[AppScorecards.evaluatedAt] =
+                OffsetDateTime.parse(event.evaluatedAt)
+            it[AppScorecards.k8sEventType] = event.k8sEventType
+            it[AppScorecards.rawMetadata] = event.rawMetadata?.toString()
+            it[AppScorecards.updatedAt] = now
         }
 
-        // Obter app_scorecard_id recém-upsertado
         val appScorecardId = AppScorecards
             .select(AppScorecards.appScorecardId)
             .where { AppScorecards.workloadId eq workloadId }
             .single()[AppScorecards.appScorecardId]
 
-        // Substituir pillar_scores (delete + insert — scorecard atual tem CASCADE)
         PillarScores.deleteWhere { PillarScores.appScorecardId eq appScorecardId }
         event.pillarScores.forEach { ps ->
             PillarScores.insert {
                 it[PillarScores.appScorecardId] = appScorecardId
-                it[pillar]        = ps.pillar
-                it[pillarScore]   = ps.score.toBigDecimal()
-                it[passedChecks]  = ps.passedChecks
-                it[failedChecks]  = ps.failedChecks
-                it[weightedScore] = ps.weightedScore?.toBigDecimal()
-                it[createdAt]     = now
-                it[updatedAt]     = now
+                it[PillarScores.pillar] = ps.pillar.uppercase()
+                it[PillarScores.pillarScore] = ps.score.toBigDecimal()
+                it[PillarScores.passedChecks] = ps.passedChecks
+                it[PillarScores.failedChecks] = ps.failedChecks
+                it[PillarScores.weightedScore] = ps.weightedScore?.toBigDecimal()
+                it[PillarScores.createdAt] = now
+                it[PillarScores.updatedAt] = now
             }
         }
 
-        // Inserir na série temporal (append-only)
+        upsertValidationRules(event.validationResults, now)
+        ValidationResults.deleteWhere {
+            ValidationResults.appScorecardId eq appScorecardId
+        }
+        event.validationResults.forEach { validation ->
+            val validationRuleId = resolveValidationRuleId(validation.ruleId)
+            ValidationResults.insert {
+                it[ValidationResults.appScorecardId] = appScorecardId
+                it[ValidationResults.validationRuleId] = validationRuleId
+                it[ValidationResults.rulePassed] = validation.passed
+                it[ValidationResults.resultMessage] = validation.message
+                it[ValidationResults.actualValue] = validation.actualValue
+                it[ValidationResults.evaluatedAt] =
+                    OffsetDateTime.parse(event.evaluatedAt)
+                it[ValidationResults.createdAt] = now
+            }
+        }
+
         ScorecardScores.insert {
-            it[ScorecardScores.workloadId]    = workloadId
-            it[overallScore]     = event.overallScore.toBigDecimal()
-            it[complianceStatus] = event.complianceStatus
-            it[passedRules]      = event.passedRules
-            it[failedRules]      = event.failedRules
-            it[recordedAt]       = now
+            it[ScorecardScores.workloadId] = workloadId
+            it[ScorecardScores.overallScore] = event.overallScore.toBigDecimal()
+            it[ScorecardScores.complianceStatus] = normalizedComplianceStatus
+            it[ScorecardScores.passedRules] = event.passedRules
+            it[ScorecardScores.failedRules] = event.failedRules
+            it[ScorecardScores.recordedAt] = now
             event.pillarScores.forEach { ps ->
-                when (ps.pillar) {
-                    "RESILIENCE"   -> it[resilienceScore]  = ps.score.toBigDecimal()
-                    "SECURITY"     -> it[securityScore]    = ps.score.toBigDecimal()
-                    "COST"         -> it[costScore]        = ps.score.toBigDecimal()
-                    "PERFORMANCE"  -> it[performanceScore] = ps.score.toBigDecimal()
-                    "OPERATIONAL"  -> it[operationalScore] = ps.score.toBigDecimal()
-                    "COMPLIANCE"   -> it[complianceScore]  = ps.score.toBigDecimal()
+                when (ps.pillar.uppercase()) {
+                    "RESILIENCE"   -> it[ScorecardScores.resilienceScore] = ps.score.toBigDecimal()
+                    "SECURITY"     -> it[ScorecardScores.securityScore] = ps.score.toBigDecimal()
+                    "COST"         -> it[ScorecardScores.costScore] = ps.score.toBigDecimal()
+                    "PERFORMANCE"  -> it[ScorecardScores.performanceScore] = ps.score.toBigDecimal()
+                    "OPERATIONAL"  -> it[ScorecardScores.operationalScore] = ps.score.toBigDecimal()
+                    "COMPLIANCE"   -> it[ScorecardScores.complianceScore] = ps.score.toBigDecimal()
                 }
             }
         }
     }
 
     suspend fun insertNotificationLog(event: NotificationSentEvent) = dbQuery {
+        val resolvedWorkloadId = event.workloadId?.let { id -> resolveWorkloadId(id) }
+        val resolvedNamespaceId =
+            resolvedWorkloadId?.let { workloadId -> resolveNamespaceIdByWorkload(workloadId) }
+
         NotificationLog.insert {
-            it[workloadId]       = event.workloadId?.let { id -> resolveWorkloadId(id) }
-            it[notificationType] = event.notificationType
-            it[severity]         = event.severity
-            it[channel]          = event.channel
-            it[title]            = event.title
-            it[messagePreview]   = event.messagePreview?.take(500)
-            it[success]          = event.success
-            it[errorMessage]     = event.errorMessage
-            it[createdAt]        = Instant.now().toKotlinInstant()
+            it[NotificationLog.workloadId] = resolvedWorkloadId
+            it[NotificationLog.namespaceId] = resolvedNamespaceId
+            it[NotificationLog.notificationType] = event.notificationType
+            it[NotificationLog.notificationSeverity] = event.severity.uppercase()
+            it[NotificationLog.channel] = event.channel
+            it[NotificationLog.notificationTitle] = event.title?.take(500)
+            it[NotificationLog.messagePreview] = event.messagePreview?.take(500)
+            it[NotificationLog.success] = event.success
+            it[NotificationLog.errorMessage] = event.errorMessage
+            it[NotificationLog.sentAt] = OffsetDateTime.now(ZoneOffset.UTC)
+            it[NotificationLog.createdAt] = OffsetDateTime.now(ZoneOffset.UTC)
         }
     }
+
+    suspend fun getByWorkloadId(k8sUid: String): Map<String, Any?>? = dbQuery {
+        val workloadId = Workloads
+            .select(Workloads.workloadId)
+            .where { Workloads.k8sUid eq k8sUid }
+            .singleOrNull()
+            ?.get(Workloads.workloadId)
+            ?: return@dbQuery null
+
+        (Workloads innerJoin Namespaces innerJoin Clusters)
+            .leftJoin(AppScorecards, { Workloads.workloadId }, { AppScorecards.workloadId })
+            .select(
+                Workloads.k8sUid,
+                Workloads.workloadName,
+                Workloads.workloadKind,
+                Namespaces.namespaceName,
+                Clusters.clusterName,
+                Clusters.environment,
+                AppScorecards.overallScore,
+                AppScorecards.complianceStatus,
+                AppScorecards.version,
+                AppScorecards.evaluatedAt,
+            )
+            .where { Workloads.workloadId eq workloadId }
+            .singleOrNull()
+            ?.let { row ->
+                mapOf(
+                    "workload_id" to row[Workloads.k8sUid],
+                    "workload" to row[Workloads.workloadName],
+                    "workload_kind" to row[Workloads.workloadKind],
+                    "namespace" to row[Namespaces.namespaceName],
+                    "cluster" to row[Clusters.clusterName],
+                    "environment" to row[Clusters.environment],
+                    "overall_score" to row[AppScorecards.overallScore],
+                    "compliance_status" to row[AppScorecards.complianceStatus],
+                    "version" to row[AppScorecards.version],
+                    "evaluated_at" to row[AppScorecards.evaluatedAt]?.toString(),
+                )
+            }
+    }
+
+    private fun resolveWorkloadId(k8sUid: String): Long =
+        Workloads
+            .select(Workloads.workloadId)
+            .where { Workloads.k8sUid eq k8sUid }
+            .singleOrNull()
+            ?.get(Workloads.workloadId)
+            ?: error("Workload não encontrado para k8s_uid=$k8sUid")
+
+    private fun resolveNamespaceIdByWorkload(workloadIdValue: Long): Long? =
+        Workloads
+            .select(Workloads.namespaceId)
+            .where { Workloads.workloadId eq workloadIdValue }
+            .singleOrNull()
+            ?.get(Workloads.namespaceId)
+
+    private fun ensureWorkload(event: ScorecardEvaluatedEvent): Long {
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+        val clusterId = ensureCluster(event.cluster, event.environment, now)
+        val namespaceId = ensureNamespace(clusterId, event.namespace, now)
+
+        Workloads.upsert(Workloads.namespaceId, Workloads.workloadName, Workloads.workloadKind) {
+            it[Workloads.namespaceId] = namespaceId
+            it[Workloads.workloadName] = event.workload
+            it[Workloads.workloadKind] = event.workloadKind
+            it[Workloads.k8sUid] = event.workloadId
+            it[Workloads.resourceVersion] = event.resourceVersion
+            it[Workloads.ddGitRepositoryUrl] = event.ddGitRepositoryUrl
+            it[Workloads.labels] = event.labels?.toString()
+            it[Workloads.annotations] = event.annotations?.toString()
+            it[Workloads.isActive] = true
+            it[Workloads.updatedAt] = now
+        }
+
+        return resolveWorkloadId(event.workloadId)
+    }
+
+    private fun ensureCluster(
+        clusterNameValue: String,
+        environmentValue: String,
+        now: OffsetDateTime,
+    ): Long {
+        Clusters.upsert(Clusters.clusterName) {
+            it[Clusters.clusterName] = clusterNameValue
+            it[Clusters.environment] = environmentValue
+            it[Clusters.isActive] = true
+            it[Clusters.updatedAt] = now
+        }
+
+        return Clusters
+            .select(Clusters.clusterId)
+            .where { Clusters.clusterName eq clusterNameValue }
+            .single()[Clusters.clusterId]
+    }
+
+    private fun ensureNamespace(
+        clusterIdValue: Long,
+        namespaceNameValue: String,
+        now: OffsetDateTime,
+    ): Long {
+        Namespaces.upsert(Namespaces.clusterId, Namespaces.namespaceName) {
+            it[Namespaces.clusterId] = clusterIdValue
+            it[Namespaces.namespaceName] = namespaceNameValue
+            it[Namespaces.updatedAt] = now
+        }
+
+        return Namespaces
+            .select(Namespaces.namespaceId)
+            .where {
+                (Namespaces.clusterId eq clusterIdValue) and
+                    (Namespaces.namespaceName eq namespaceNameValue)
+            }
+            .single()[Namespaces.namespaceId]
+    }
+
+    private fun upsertValidationRules(
+        validations: List<ValidationResultData>,
+        now: OffsetDateTime,
+    ) {
+        validations
+            .distinctBy { it.ruleId }
+            .forEach { validation ->
+                ValidationRules.upsert(ValidationRules.ruleId) {
+                    it[ValidationRules.ruleId] = validation.ruleId
+                    it[ValidationRules.pillar] = validation.pillar.uppercase()
+                    it[ValidationRules.ruleSeverity] = validation.severity.uppercase()
+                    it[ValidationRules.ruleType] = validation.ruleType.uppercase()
+                    it[ValidationRules.weight] = validation.weight.toBigDecimal()
+                    it[ValidationRules.ruleName] = validation.ruleName
+                    it[ValidationRules.description] = validation.message
+                    it[ValidationRules.isRemediable] = validation.isRemediable
+                    it[ValidationRules.remediationCategory] =
+                        validation.remediationCategory
+                    it[ValidationRules.isActive] = true
+                    it[ValidationRules.updatedAt] = now
+                }
+            }
+    }
+
+    private fun buildPillarSnapshotJson(rows: List<ResultRow>): JsonArray =
+        buildJsonArray {
+            rows.forEach { row ->
+                add(
+                    buildJsonObject {
+                        put("pillar", JsonPrimitive(row[PillarScores.pillar]))
+                        put("score", JsonPrimitive(row[PillarScores.pillarScore]))
+                        put(
+                            "passed_checks",
+                            JsonPrimitive(row[PillarScores.passedChecks]),
+                        )
+                        put(
+                            "failed_checks",
+                            JsonPrimitive(row[PillarScores.failedChecks]),
+                        )
+                        row[PillarScores.weightedScore]?.let {
+                            put("weighted_score", JsonPrimitive(it))
+                        }
+                    },
+                )
+            }
+        }
+
+    private fun buildValidationSnapshotJson(rows: List<ResultRow>): JsonArray =
+        buildJsonArray {
+            rows.forEach { row ->
+                add(
+                    buildJsonObject {
+                        put("rule_id", JsonPrimitive(row[ValidationRules.ruleId]))
+                        put("pillar", JsonPrimitive(row[ValidationRules.pillar]))
+                        put("severity", JsonPrimitive(row[ValidationRules.ruleSeverity]))
+                        put("passed", JsonPrimitive(row[ValidationResults.rulePassed]))
+                        row[ValidationResults.resultMessage]?.let {
+                            put("message", JsonPrimitive(it))
+                        }
+                        row[ValidationResults.actualValue]?.let {
+                            put("actual_value", JsonPrimitive(it))
+                        }
+                    },
+                )
+            }
+        }
+
+    private fun resolveValidationRuleId(ruleIdValue: String): Long =
+        ValidationRules
+            .select(ValidationRules.validationRuleId)
+            .where { ValidationRules.ruleId eq ruleIdValue }
+            .single()[ValidationRules.validationRuleId]
 
     suspend fun getDashboard(clusterName: String? = null): List<Map<String, Any?>> = dbQuery {
         val query = (Workloads innerJoin Namespaces innerJoin Clusters)

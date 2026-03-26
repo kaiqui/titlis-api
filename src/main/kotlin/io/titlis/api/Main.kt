@@ -16,6 +16,7 @@ import io.titlis.api.repository.SloRepository
 import io.titlis.api.routes.healthRoutes
 import io.titlis.api.routes.remediationRoutes
 import io.titlis.api.routes.scorecardRoutes
+import io.titlis.api.routes.sloRoutes
 import io.titlis.api.udp.EventRouter
 import io.titlis.api.udp.UdpServer
 import kotlinx.coroutines.CoroutineScope
@@ -59,4 +60,5 @@ fun Application.module() {
     healthRoutes()
     scorecardRoutes(scorecardRepo)
     remediationRoutes(remediationRepo)
+    sloRoutes(sloRepo)
 }

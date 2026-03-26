@@ -3,10 +3,10 @@ package io.titlis.api.udp
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
-import org.junit.Test
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import kotlin.test.Test
 
 class UdpServerTest {
 

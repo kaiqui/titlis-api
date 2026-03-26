@@ -15,7 +15,7 @@ fun Application.remediationRoutes(repo: RemediationRepository) {
                     ?: return@get call.respond(HttpStatusCode.BadRequest, "workloadId required")
                 val result = repo.getByWorkload(k8sUid)
                     ?: return@get call.respond(HttpStatusCode.NotFound)
-                call.respond(result)
+                call.respondJson(result)
             }
         }
     }

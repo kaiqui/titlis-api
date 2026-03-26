@@ -2,6 +2,7 @@ package io.titlis.api.domain
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
 @Serializable
@@ -18,6 +19,7 @@ data class ScorecardEvaluatedEvent(
     val namespace: String,
     val workload: String,
     val cluster: String,
+    val environment: String = "unknown",
     @SerialName("k8s_event_type") val k8sEventType: String,
     @SerialName("overall_score") val overallScore: Double,
     @SerialName("compliance_status") val complianceStatus: String,
@@ -29,6 +31,14 @@ data class ScorecardEvaluatedEvent(
     @SerialName("warning_count") val warningCount: Int,
     @SerialName("scorecard_version") val scorecardVersion: Int,
     @SerialName("pillar_scores") val pillarScores: List<PillarScoreData>,
+    @SerialName("workload_kind") val workloadKind: String = "Deployment",
+    @SerialName("resource_version") val resourceVersion: String? = null,
+    val labels: JsonObject? = null,
+    val annotations: JsonObject? = null,
+    @SerialName("dd_git_repository_url") val ddGitRepositoryUrl: String? = null,
+    @SerialName("raw_metadata") val rawMetadata: JsonObject? = null,
+    @SerialName("validation_results")
+    val validationResults: List<ValidationResultData> = emptyList(),
     @SerialName("evaluated_at") val evaluatedAt: String,
 )
 
@@ -42,6 +52,21 @@ data class PillarScoreData(
 )
 
 @Serializable
+data class ValidationResultData(
+    @SerialName("rule_id") val ruleId: String,
+    @SerialName("rule_name") val ruleName: String,
+    val pillar: String,
+    val passed: Boolean,
+    val severity: String,
+    @SerialName("rule_type") val ruleType: String,
+    val weight: Double,
+    val message: String,
+    @SerialName("actual_value") val actualValue: String? = null,
+    @SerialName("is_remediable") val isRemediable: Boolean = false,
+    @SerialName("remediation_category") val remediationCategory: String? = null,
+)
+
+@Serializable
 data class RemediationEvent(
     @SerialName("workload_id") val workloadId: String,
     val namespace: String,
@@ -49,10 +74,13 @@ data class RemediationEvent(
     val status: String,
     @SerialName("previous_status") val previousStatus: String? = null,
     val version: Int,
+    @SerialName("scorecard_version") val scorecardVersion: Int? = null,
     @SerialName("github_pr_number") val githubPrNumber: Int? = null,
+    @SerialName("github_pr_title") val githubPrTitle: String? = null,
     @SerialName("github_pr_url") val githubPrUrl: String? = null,
     @SerialName("github_branch") val githubBranch: String? = null,
     @SerialName("repository_url") val repositoryUrl: String? = null,
+    @SerialName("issues_snapshot") val issuesSnapshot: JsonArray? = null,
     @SerialName("error_message") val errorMessage: String? = null,
     @SerialName("triggered_at") val triggeredAt: String,
     @SerialName("resolved_at") val resolvedAt: String? = null,
@@ -62,6 +90,8 @@ data class RemediationEvent(
 data class SloReconciledEvent(
     @SerialName("slo_config_id") val sloConfigId: String,
     val namespace: String,
+    val cluster: String,
+    val environment: String = "unknown",
     @SerialName("slo_name") val sloName: String,
     @SerialName("slo_type") val sloType: String,
     val timeframe: String,
@@ -77,6 +107,7 @@ data class SloReconciledEvent(
     @SerialName("detected_framework") val detectedFramework: String? = null,   // WSGI | FASTAPI | AIOHTTP
     @SerialName("detection_source") val detectionSource: String? = null,       // annotation | datadog_tag | fallback
     @SerialName("k8s_resource_uid") val k8sResourceUid: String? = null,        // para tag titlis_resource_uid
+    @SerialName("app_framework") val appFramework: String? = null,
 )
 
 @Serializable

@@ -1,4 +1,6 @@
-import com.typesafe.config.Config
+package io.titlis.api.config
+
+import io.ktor.server.config.ApplicationConfig
 
 data class DatabaseConfig(
     val url: String,
@@ -21,23 +23,23 @@ data class AppConfig(
     val udp: UdpConfig,
 ) {
     companion object {
-        fun from(config: Config): AppConfig {
-            val db = config.getConfig("titlis.database")
-            val udp = config.getConfig("titlis.udp")
+        fun from(config: ApplicationConfig): AppConfig {
+            val db = config.config("titlis.database")
+            val udp = config.config("titlis.udp")
             return AppConfig(
                 database = DatabaseConfig(
-                    url = db.getString("url"),
-                    user = db.getString("user"),
-                    password = db.getString("password"),
-                    maxPoolSize = db.getInt("pool.maxPoolSize"),
-                    connectionTimeout = db.getLong("pool.connectionTimeout"),
-                    idleTimeout = db.getLong("pool.idleTimeout"),
+                    url = db.property("url").getString(),
+                    user = db.property("user").getString(),
+                    password = db.property("password").getString(),
+                    maxPoolSize = db.property("pool.maxPoolSize").getString().toInt(),
+                    connectionTimeout = db.property("pool.connectionTimeout").getString().toLong(),
+                    idleTimeout = db.property("pool.idleTimeout").getString().toLong(),
                 ),
                 udp = UdpConfig(
-                    port = udp.getInt("port"),
-                    bufferSize = udp.getInt("bufferSize"),
-                    workers = udp.getInt("workers"),
-                    queueSize = udp.getInt("queueSize"),
+                    port = udp.property("port").getString().toInt(),
+                    bufferSize = udp.property("bufferSize").getString().toInt(),
+                    workers = udp.property("workers").getString().toInt(),
+                    queueSize = udp.property("queueSize").getString().toInt(),
                 ),
             )
         }

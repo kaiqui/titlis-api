@@ -1,67 +1,76 @@
 package io.titlis.api.repository
 
 import io.titlis.api.database.DatabaseFactory.dbQuery
+import io.titlis.api.database.tables.Clusters
+import io.titlis.api.database.tables.Namespaces
 import io.titlis.api.database.tables.SloComplianceHistory
 import io.titlis.api.database.tables.SloConfigs
 import io.titlis.api.domain.SloReconciledEvent
-import kotlinx.datetime.toKotlinInstant
-import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.select
+import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.upsert
-import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 
 class SloRepository {
-
     suspend fun upsertSloConfig(event: SloReconciledEvent) = dbQuery {
-        val now = Instant.now().toKotlinInstant()
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+        val namespaceIdValue = ensureNamespace(event.cluster, event.environment, event.namespace, now)
 
-        // Upsert estado atual por slo_config_name (chave de negócio no CRD)
-        SloConfigs.upsert(SloConfigs.sloConfigName) {
-            it[sloConfigName]       = event.sloName
-            it[sloType]             = event.sloType
-            it[timeframe]           = event.timeframe
-            it[target]              = event.target.toBigDecimal()
-            it[warning]             = event.warning?.toBigDecimal()
-            it[autoDetectFramework] = event.autoDetectFramework
-            it[detectedFramework]   = event.detectedFramework
-            it[detectionSource]     = event.detectionSource
-            it[k8sResourceUid]      = event.k8sResourceUid
-            it[datadogSloId]        = event.datadogSloId
-            it[datadogSloState]     = event.datadogSloState
-            it[syncError]           = event.syncError
-            it[lastSyncAt]          = now
-            it[updatedAt]           = now
+        SloConfigs.upsert(SloConfigs.namespaceId, SloConfigs.sloConfigName) {
+            it[SloConfigs.namespaceId] = namespaceIdValue
+            it[SloConfigs.sloConfigName] = event.sloName
+            it[SloConfigs.sloType] = event.sloType
+            it[SloConfigs.timeframe] = event.timeframe
+            it[SloConfigs.target] = event.target.toBigDecimal()
+            it[SloConfigs.warning] = event.warning?.toBigDecimal()
+            it[SloConfigs.autoDetectFramework] = event.autoDetectFramework
+            it[SloConfigs.appFramework] = event.appFramework
+            it[SloConfigs.detectedFramework] = event.detectedFramework
+            it[SloConfigs.detectionSource] = event.detectionSource
+            it[SloConfigs.k8sResourceUid] = event.k8sResourceUid ?: event.sloConfigId
+            it[SloConfigs.datadogSloId] = event.datadogSloId
+            it[SloConfigs.datadogSloState] = event.datadogSloState
+            it[SloConfigs.syncError] = event.syncError
+            it[SloConfigs.lastSyncAt] = now
+            it[SloConfigs.updatedAt] = now
         }
 
-        // Resolver slo_config_id para o registro de histórico
         val resolvedSloConfigId = SloConfigs
             .select(SloConfigs.sloConfigId)
-            .where { SloConfigs.sloConfigName eq event.sloName }
+            .where {
+                (SloConfigs.namespaceId eq namespaceIdValue) and
+                    (SloConfigs.sloConfigName eq event.sloName)
+            }
             .single()[SloConfigs.sloConfigId]
 
-        // Append ao histórico de compliance (sempre — mesmo em noop)
         SloComplianceHistory.insert {
-            it[sloConfigId]       = resolvedSloConfigId
-            it[sloName]           = event.sloName
-            it[sloType]           = event.sloType
-            it[timeframe]         = event.timeframe
-            it[target]            = event.target.toBigDecimal()
-            it[actualValue]       = event.actualValue?.toBigDecimal()
-            it[sloState]          = event.datadogSloState
-            it[syncAction]        = event.syncAction
-            it[syncError]         = event.syncError
-            it[datadogSloId]      = event.datadogSloId
-            it[detectedFramework] = event.detectedFramework
-            it[detectionSource]   = event.detectionSource
-            it[recordedAt]        = now
+            it[SloComplianceHistory.sloConfigId] = resolvedSloConfigId
+            it[SloComplianceHistory.namespaceId] = namespaceIdValue
+            it[SloComplianceHistory.sloConfigName] = event.sloName
+            it[SloComplianceHistory.sloType] = event.sloType
+            it[SloComplianceHistory.timeframe] = event.timeframe
+            it[SloComplianceHistory.target] = event.target.toBigDecimal()
+            it[SloComplianceHistory.actualValue] = event.actualValue?.toBigDecimal()
+            it[SloComplianceHistory.sloState] = event.datadogSloState
+            it[SloComplianceHistory.syncAction] = event.syncAction
+            it[SloComplianceHistory.syncError] = event.syncError
+            it[SloComplianceHistory.datadogSloId] = event.datadogSloId
+            it[SloComplianceHistory.detectedFramework] = event.detectedFramework
+            it[SloComplianceHistory.detectionSource] = event.detectionSource
+            it[SloComplianceHistory.recordedAt] = now
         }
     }
 
     suspend fun getByName(namespace: String, name: String): Map<String, Any?>? = dbQuery {
-        SloConfigs
+        (SloConfigs innerJoin Namespaces)
             .select(SloConfigs.columns)
-            .where { SloConfigs.sloConfigName eq name }
+            .where {
+                (SloConfigs.sloConfigName eq name) and
+                    (Namespaces.namespaceName eq namespace)
+            }
             .singleOrNull()
             ?.let { row ->
                 mapOf(
@@ -76,5 +85,37 @@ class SloRepository {
                     "last_sync_at"      to row[SloConfigs.lastSyncAt]?.toString(),
                 )
             }
+    }
+
+    private fun ensureNamespace(
+        clusterNameValue: String,
+        environmentValue: String,
+        namespaceNameValue: String,
+        now: OffsetDateTime,
+    ): Long {
+        Clusters.upsert(Clusters.clusterName) {
+            it[Clusters.clusterName] = clusterNameValue
+            it[Clusters.environment] = environmentValue
+            it[Clusters.isActive] = true
+            it[Clusters.updatedAt] = now
+        }
+        val clusterIdValue = Clusters
+            .select(Clusters.clusterId)
+            .where { Clusters.clusterName eq clusterNameValue }
+            .single()[Clusters.clusterId]
+
+        Namespaces.upsert(Namespaces.clusterId, Namespaces.namespaceName) {
+            it[Namespaces.clusterId] = clusterIdValue
+            it[Namespaces.namespaceName] = namespaceNameValue
+            it[Namespaces.updatedAt] = now
+        }
+
+        return Namespaces
+            .select(Namespaces.namespaceId)
+            .where {
+                (Namespaces.clusterId eq clusterIdValue) and
+                    (Namespaces.namespaceName eq namespaceNameValue)
+            }
+            .single()[Namespaces.namespaceId]
     }
 }

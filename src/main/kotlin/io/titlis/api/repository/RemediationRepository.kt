@@ -5,11 +5,11 @@ import io.titlis.api.database.tables.AppRemediations
 import io.titlis.api.database.tables.RemediationHistory
 import io.titlis.api.database.tables.Workloads
 import io.titlis.api.domain.RemediationEvent
-import kotlinx.datetime.toKotlinInstant
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.select
 import org.jetbrains.exposed.sql.upsert
-import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 
 class RemediationRepository {
 
@@ -23,7 +23,7 @@ class RemediationRepository {
 
     suspend fun upsertRemediation(event: RemediationEvent) = dbQuery {
         val workloadId = resolveWorkloadId(event.workloadId)
-        val now = Instant.now().toKotlinInstant()
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
 
         // SCD Type 4 — a aplicação registra transição de estado em remediation_history (sem triggers DML).
         val existing = AppRemediations
@@ -31,29 +31,49 @@ class RemediationRepository {
             .where { AppRemediations.workloadId eq workloadId }
             .singleOrNull()
 
-        if (existing != null &&
-            existing[AppRemediations.appRemediationStatus] != event.status) {
+        if (
+            existing == null ||
+            existing[AppRemediations.appRemediationStatus] != event.status ||
+            existing[AppRemediations.version] != event.version
+        ) {
             RemediationHistory.insert {
-                it[RemediationHistory.workloadId]                   = workloadId
-                it[remediationVersion]                              = event.version
-                it[appRemediationStatus]                            = event.status
-                it[previousAppRemediationStatus]                    = existing[AppRemediations.appRemediationStatus]
-                it[createdAt]                                       = now
+                it[RemediationHistory.workloadId] = workloadId
+                it[RemediationHistory.remediationVersion] = event.version
+                it[RemediationHistory.appRemediationStatus] = event.status
+                it[RemediationHistory.previousAppRemediationStatus] =
+                    event.previousStatus ?: existing?.get(AppRemediations.appRemediationStatus)
+                it[RemediationHistory.scorecardVersion] = event.scorecardVersion
+                it[RemediationHistory.githubPrNumber] = event.githubPrNumber
+                it[RemediationHistory.githubPrUrl] = event.githubPrUrl?.take(500)
+                it[RemediationHistory.githubBranch] = event.githubBranch?.take(255)
+                it[RemediationHistory.repositoryUrl] = event.repositoryUrl?.take(500)
+                it[RemediationHistory.issuesSnapshot] = event.issuesSnapshot?.toString()
+                it[RemediationHistory.errorMessage] = event.errorMessage
+                it[RemediationHistory.triggeredAt] =
+                    OffsetDateTime.parse(event.triggeredAt)
+                it[RemediationHistory.resolvedAt] = event.resolvedAt?.let { ts ->
+                    OffsetDateTime.parse(ts)
+                }
+                it[RemediationHistory.createdAt] = now
             }
         }
 
         AppRemediations.upsert(AppRemediations.workloadId) {
             it[AppRemediations.workloadId]    = workloadId
-            it[version]                       = event.version
-            it[appRemediationStatus]          = event.status
-            it[githubPrNumber]                = event.githubPrNumber
-            it[githubPrUrl]                   = event.githubPrUrl?.take(500)
-            it[githubBranch]                  = event.githubBranch?.take(255)
-            it[repositoryUrl]                 = event.repositoryUrl?.take(500)
-            it[errorMessage]                  = event.errorMessage
-            it[triggeredAt]                   = Instant.parse(event.triggeredAt).toKotlinInstant()
-            it[resolvedAt]                    = event.resolvedAt?.let { ts -> Instant.parse(ts).toKotlinInstant() }
-            it[updatedAt]                     = now
+            it[AppRemediations.version]       = event.version
+            it[AppRemediations.appRemediationStatus] = event.status
+            it[AppRemediations.githubPrNumber] = event.githubPrNumber
+            it[AppRemediations.githubPrTitle] = event.githubPrTitle?.take(500)
+            it[AppRemediations.githubPrUrl]   = event.githubPrUrl?.take(500)
+            it[AppRemediations.githubBranch]  = event.githubBranch?.take(255)
+            it[AppRemediations.repositoryUrl] = event.repositoryUrl?.take(500)
+            it[AppRemediations.errorMessage]  = event.errorMessage
+            it[AppRemediations.triggeredAt]   =
+                OffsetDateTime.parse(event.triggeredAt)
+            it[AppRemediations.resolvedAt]    = event.resolvedAt?.let { ts ->
+                OffsetDateTime.parse(ts)
+            }
+            it[AppRemediations.updatedAt]     = now
         }
     }
 
@@ -69,11 +89,11 @@ class RemediationRepository {
             .singleOrNull()
             ?.let { row ->
                 mapOf(
-                    "status"          to row[AppRemediations.appRemediationStatus],
-                    "version"         to row[AppRemediations.version],
-                    "github_pr_url"   to row[AppRemediations.githubPrUrl],
+                    "status" to row[AppRemediations.appRemediationStatus],
+                    "version" to row[AppRemediations.version],
+                    "github_pr_url" to row[AppRemediations.githubPrUrl],
                     "github_pr_number" to row[AppRemediations.githubPrNumber],
-                    "triggered_at"    to row[AppRemediations.triggeredAt].toString(),
+                    "triggered_at" to row[AppRemediations.triggeredAt].toString(),
                 )
             }
     }

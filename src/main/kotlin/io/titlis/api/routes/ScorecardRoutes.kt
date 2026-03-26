@@ -12,15 +12,16 @@ fun Application.scorecardRoutes(repo: ScorecardRepository) {
             // Dashboard: estado atual de todos os workloads
             get("/dashboard") {
                 val cluster = call.request.queryParameters["cluster"]
-                call.respond(repo.getDashboard(cluster))
+                call.respondJson(repo.getDashboard(cluster))
             }
 
             // Estado atual de um workload específico
             get("/workloads/{workloadId}/scorecard") {
                 val id = call.parameters["workloadId"]
                     ?: return@get call.respond(HttpStatusCode.BadRequest, "workloadId required")
-                // implementar getByWorkloadId no repo
-                call.respond(mapOf("workload_id" to id))
+                val result = repo.getByWorkloadId(id)
+                    ?: return@get call.respond(HttpStatusCode.NotFound)
+                call.respondJson(result)
             }
         }
     }
