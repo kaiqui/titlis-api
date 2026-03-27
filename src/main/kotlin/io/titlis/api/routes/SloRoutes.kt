@@ -9,6 +9,12 @@ import io.titlis.api.repository.SloRepository
 fun Application.sloRoutes(repo: SloRepository) {
     routing {
         route("/v1") {
+            get("/slos") {
+                val namespace = call.request.queryParameters["namespace"]
+                val cluster = call.request.queryParameters["cluster"]
+                call.respondJson(repo.list(namespace, cluster))
+            }
+
             get("/namespaces/{namespace}/slos/{name}") {
                 val namespace = call.parameters["namespace"]
                     ?: return@get call.respond(

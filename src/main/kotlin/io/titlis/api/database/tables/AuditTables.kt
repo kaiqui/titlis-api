@@ -68,7 +68,7 @@ object NotificationLog : Table("titlis_audit.notification_log") {
     val namespaceId          = long("namespace_id").nullable()
     val tenantId             = long("tenant_id").nullable()
     val notificationType     = varchar("notification_type", 50)
-    val notificationSeverity = varchar("notification_severity", 50)
+    val notificationSeverity = pgEnum("notification_severity", "titlis_oltp.notification_severity")
     val channel              = varchar("channel", 255).nullable()
     val notificationTitle    = varchar("notification_title", 500).nullable()
     val messagePreview       = varchar("message_preview", 500).nullable()

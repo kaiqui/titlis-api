@@ -224,7 +224,7 @@ class ScorecardRepository {
             ?.get(Workloads.workloadId)
             ?: return@dbQuery null
 
-        (Workloads innerJoin Namespaces innerJoin Clusters)
+        val scorecardRow = (Workloads innerJoin Namespaces innerJoin Clusters)
             .leftJoin(AppScorecards, { Workloads.workloadId }, { AppScorecards.workloadId })
             .select(
                 Workloads.k8sUid,
@@ -233,27 +233,101 @@ class ScorecardRepository {
                 Namespaces.namespaceName,
                 Clusters.clusterName,
                 Clusters.environment,
+                AppScorecards.appScorecardId,
                 AppScorecards.overallScore,
                 AppScorecards.complianceStatus,
                 AppScorecards.version,
+                AppScorecards.totalRules,
+                AppScorecards.passedRules,
+                AppScorecards.failedRules,
+                AppScorecards.criticalFailures,
+                AppScorecards.errorCount,
+                AppScorecards.warningCount,
                 AppScorecards.evaluatedAt,
             )
             .where { Workloads.workloadId eq workloadId }
             .singleOrNull()
-            ?.let { row ->
-                mapOf(
-                    "workload_id" to row[Workloads.k8sUid],
-                    "workload" to row[Workloads.workloadName],
-                    "workload_kind" to row[Workloads.workloadKind],
-                    "namespace" to row[Namespaces.namespaceName],
-                    "cluster" to row[Clusters.clusterName],
-                    "environment" to row[Clusters.environment],
-                    "overall_score" to row[AppScorecards.overallScore],
-                    "compliance_status" to row[AppScorecards.complianceStatus],
-                    "version" to row[AppScorecards.version],
-                    "evaluated_at" to row[AppScorecards.evaluatedAt]?.toString(),
+            ?: return@dbQuery null
+
+        val appScorecardId = scorecardRow[AppScorecards.appScorecardId]
+        val pillarScores = appScorecardId?.let { scorecardId ->
+            PillarScores
+                .select(
+                    PillarScores.pillar,
+                    PillarScores.pillarScore,
+                    PillarScores.passedChecks,
+                    PillarScores.failedChecks,
+                    PillarScores.weightedScore,
                 )
-            }
+                .where { PillarScores.appScorecardId eq scorecardId }
+                .map { row ->
+                    mapOf(
+                        "pillar" to row[PillarScores.pillar],
+                        "score" to row[PillarScores.pillarScore],
+                        "passed_checks" to row[PillarScores.passedChecks],
+                        "failed_checks" to row[PillarScores.failedChecks],
+                        "weighted_score" to row[PillarScores.weightedScore],
+                    )
+                }
+        } ?: emptyList()
+
+        val validationResults = appScorecardId?.let { scorecardId ->
+            (ValidationResults innerJoin ValidationRules)
+                .select(
+                    ValidationRules.ruleId,
+                    ValidationRules.ruleName,
+                    ValidationRules.pillar,
+                    ValidationRules.ruleSeverity,
+                    ValidationRules.ruleType,
+                    ValidationRules.weight,
+                    ValidationRules.isRemediable,
+                    ValidationRules.remediationCategory,
+                    ValidationResults.rulePassed,
+                    ValidationResults.resultMessage,
+                    ValidationResults.actualValue,
+                    ValidationResults.evaluatedAt,
+                )
+                .where { ValidationResults.appScorecardId eq scorecardId }
+                .orderBy(ValidationResults.rulePassed, SortOrder.ASC)
+                .orderBy(ValidationRules.ruleSeverity, SortOrder.DESC)
+                .map { row ->
+                    mapOf(
+                        "rule_id" to row[ValidationRules.ruleId],
+                        "rule_name" to row[ValidationRules.ruleName],
+                        "pillar" to row[ValidationRules.pillar],
+                        "severity" to row[ValidationRules.ruleSeverity],
+                        "rule_type" to row[ValidationRules.ruleType],
+                        "weight" to row[ValidationRules.weight],
+                        "passed" to row[ValidationResults.rulePassed],
+                        "message" to row[ValidationResults.resultMessage],
+                        "actual_value" to row[ValidationResults.actualValue],
+                        "is_remediable" to row[ValidationRules.isRemediable],
+                        "remediation_category" to row[ValidationRules.remediationCategory],
+                        "evaluated_at" to row[ValidationResults.evaluatedAt].toString(),
+                    )
+                }
+        } ?: emptyList()
+
+        mapOf(
+            "workload_id" to scorecardRow[Workloads.k8sUid],
+            "workload" to scorecardRow[Workloads.workloadName],
+            "workload_kind" to scorecardRow[Workloads.workloadKind],
+            "namespace" to scorecardRow[Namespaces.namespaceName],
+            "cluster" to scorecardRow[Clusters.clusterName],
+            "environment" to scorecardRow[Clusters.environment],
+            "overall_score" to scorecardRow[AppScorecards.overallScore],
+            "compliance_status" to scorecardRow[AppScorecards.complianceStatus],
+            "version" to scorecardRow[AppScorecards.version],
+            "total_rules" to scorecardRow[AppScorecards.totalRules],
+            "passed_rules" to scorecardRow[AppScorecards.passedRules],
+            "failed_rules" to scorecardRow[AppScorecards.failedRules],
+            "critical_failures" to scorecardRow[AppScorecards.criticalFailures],
+            "error_count" to scorecardRow[AppScorecards.errorCount],
+            "warning_count" to scorecardRow[AppScorecards.warningCount],
+            "evaluated_at" to scorecardRow[AppScorecards.evaluatedAt]?.toString(),
+            "pillar_scores" to pillarScores,
+            "validation_results" to validationResults,
+        )
     }
 
     private fun resolveWorkloadId(k8sUid: String): Long =

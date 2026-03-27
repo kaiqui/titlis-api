@@ -6,9 +6,12 @@ import io.titlis.api.database.tables.Namespaces
 import io.titlis.api.database.tables.SloComplianceHistory
 import io.titlis.api.database.tables.SloConfigs
 import io.titlis.api.domain.SloReconciledEvent
+import org.jetbrains.exposed.sql.SortOrder
+import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.andWhere
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.select
-import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.upsert
 import java.time.OffsetDateTime
@@ -85,6 +88,39 @@ class SloRepository {
                     "last_sync_at"      to row[SloConfigs.lastSyncAt]?.toString(),
                 )
             }
+    }
+
+    suspend fun list(namespace: String?, cluster: String?): List<Map<String, Any?>> = dbQuery {
+        val query = (SloConfigs innerJoin Namespaces innerJoin Clusters)
+            .selectAll()
+            .apply {
+                if (!namespace.isNullOrBlank()) {
+                    andWhere { Namespaces.namespaceName eq namespace }
+                }
+                if (!cluster.isNullOrBlank()) {
+                    andWhere { Clusters.clusterName eq cluster }
+                }
+            }
+            .orderBy(SloConfigs.lastSyncAt, SortOrder.DESC)
+
+        query.map { row ->
+            mapOf(
+                "slo_config_id" to row[SloConfigs.sloConfigId],
+                "name" to row[SloConfigs.sloConfigName],
+                "namespace" to row[Namespaces.namespaceName],
+                "cluster" to row[Clusters.clusterName],
+                "environment" to row[Clusters.environment],
+                "slo_type" to row[SloConfigs.sloType],
+                "timeframe" to row[SloConfigs.timeframe],
+                "target" to row[SloConfigs.target],
+                "warning" to row[SloConfigs.warning],
+                "datadog_slo_id" to row[SloConfigs.datadogSloId],
+                "datadog_slo_state" to row[SloConfigs.datadogSloState],
+                "detected_framework" to row[SloConfigs.detectedFramework],
+                "detection_source" to row[SloConfigs.detectionSource],
+                "last_sync_at" to row[SloConfigs.lastSyncAt]?.toString(),
+            )
+        }
     }
 
     private fun ensureNamespace(

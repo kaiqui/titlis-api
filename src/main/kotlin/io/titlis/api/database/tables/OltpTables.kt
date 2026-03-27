@@ -69,14 +69,14 @@ object Workloads : Table("titlis_oltp.workloads") {
 object ValidationRules : Table("titlis_oltp.validation_rules") {
     val validationRuleId    = long("validation_rule_id").autoIncrement()
     val ruleId              = varchar("rule_id", 50)             // RES-001, PERF-002...
-    val pillar              = varchar("pillar", 50)
-    val ruleSeverity        = varchar("rule_severity", 50)
-    val ruleType            = varchar("rule_type", 50)
+    val pillar              = pgEnum("pillar", "titlis_oltp.validation_pillar")
+    val ruleSeverity        = pgEnum("rule_severity", "titlis_oltp.validation_severity")
+    val ruleType            = pgEnum("rule_type", "titlis_oltp.validation_rule_type")
     val weight              = decimal("weight", 5, 2).default(1.0.toBigDecimal())
     val ruleName            = varchar("rule_name", 255)
     val description         = text("description").nullable()
     val isRemediable        = bool("is_remediable").default(false)
-    val remediationCategory = varchar("remediation_category", 50).nullable()  // resources | hpa
+    val remediationCategory = pgEnum("remediation_category", "titlis_oltp.remediation_category").nullable()  // resources | hpa
     val isActive            = bool("is_active").default(true)
     val createdAt           = timestampWithTimeZone("created_at")
     val updatedAt           = timestampWithTimeZone("updated_at")
@@ -89,7 +89,7 @@ object AppScorecards : Table("titlis_oltp.app_scorecards") {
     val tenantId         = long("tenant_id").references(Tenants.tenantId).nullable()
     val version          = integer("version").default(1)
     val overallScore     = decimal("overall_score", 5, 2)
-    val complianceStatus = varchar("compliance_status", 50).default("UNKNOWN")
+    val complianceStatus = pgEnum("compliance_status", "titlis_oltp.compliance_status").default("UNKNOWN")
     val totalRules       = integer("total_rules").default(0)
     val passedRules      = integer("passed_rules").default(0)
     val failedRules      = integer("failed_rules").default(0)
@@ -107,7 +107,7 @@ object AppScorecards : Table("titlis_oltp.app_scorecards") {
 object PillarScores : Table("titlis_oltp.pillar_scores") {
     val pillarScoreId  = long("pillar_score_id").autoIncrement()
     val appScorecardId = long("app_scorecard_id").references(AppScorecards.appScorecardId)
-    val pillar         = varchar("pillar", 50)
+    val pillar         = pgEnum("pillar", "titlis_oltp.validation_pillar")
     val pillarScore    = decimal("pillar_score", 5, 2)
     val passedChecks   = integer("passed_checks").default(0)
     val failedChecks   = integer("failed_checks").default(0)
@@ -135,7 +135,7 @@ object AppRemediations : Table("titlis_oltp.app_remediations") {
     val tenantId             = long("tenant_id").references(Tenants.tenantId).nullable()
     val version              = integer("version").default(1)
     val appScorecardId       = long("app_scorecard_id").references(AppScorecards.appScorecardId).nullable()
-    val appRemediationStatus = varchar("app_remediation_status", 50).default("PENDING")
+    val appRemediationStatus = pgEnum("app_remediation_status", "titlis_oltp.remediation_status").default("PENDING")
     val githubPrNumber       = integer("github_pr_number").nullable()
     val githubPrUrl          = varchar("github_pr_url", 500).nullable()
     val githubPrTitle        = varchar("github_pr_title", 500).nullable()
@@ -153,7 +153,7 @@ object RemediationIssues : Table("titlis_oltp.remediation_issues") {
     val remediationIssueId = long("remediation_issue_id").autoIncrement()
     val appRemediationId   = long("app_remediation_id").references(AppRemediations.appRemediationId)
     val validationRuleId   = long("validation_rule_id").references(ValidationRules.validationRuleId)
-    val issueCategory      = varchar("issue_category", 50)    // resources | hpa
+    val issueCategory      = pgEnum("issue_category", "titlis_oltp.remediation_category")    // resources | hpa
     val description        = text("description").nullable()
     val suggestedValue     = varchar("suggested_value", 100).nullable()
     val appliedValue       = varchar("applied_value", 100).nullable()
@@ -168,20 +168,20 @@ object SloConfigs : Table("titlis_oltp.slo_configs") {
     val namespaceId          = long("namespace_id").references(Namespaces.namespaceId)
     val tenantId             = long("tenant_id").references(Tenants.tenantId).nullable()
     val sloConfigName        = varchar("slo_config_name", 255)
-    val sloType              = varchar("slo_type", 50)
-    val timeframe            = varchar("timeframe", 10)
+    val sloType              = pgEnum("slo_type", "titlis_oltp.slo_type")
+    val timeframe            = pgEnum("timeframe", "titlis_oltp.slo_timeframe")
     val target               = decimal("target", 6, 4)
     val warning              = decimal("warning", 6, 4).nullable()
     // Framework detection (SLOConfigSpec + SLOConfigStatus)
     val autoDetectFramework  = bool("auto_detect_framework").default(false)
-    val appFramework         = varchar("app_framework", 50).nullable()  // WSGI | FASTAPI | AIOHTTP
+    val appFramework         = pgEnum("app_framework", "titlis_oltp.slo_app_framework").nullable()  // WSGI | FASTAPI | AIOHTTP
     val detectedFramework    = varchar("detected_framework", 50).nullable()  // status.detected_framework
     val detectionSource      = varchar("detection_source", 50).nullable()    // annotation | datadog_tag | fallback
     // Idempotency — Path B (titlis_resource_uid tag no Datadog)
     val k8sResourceUid       = varchar("k8s_resource_uid", 255).nullable()
     // Datadog sync state
     val datadogSloId         = varchar("datadog_slo_id", 255).nullable()
-    val datadogSloState      = varchar("datadog_slo_state", 50).nullable()
+    val datadogSloState      = pgEnum("datadog_slo_state", "titlis_oltp.slo_state").nullable()
     val lastSyncAt           = timestampWithTimeZone("last_sync_at").nullable()
     val syncError            = text("sync_error").nullable()
     val specRaw              = jsonbText("spec_raw").nullable()
