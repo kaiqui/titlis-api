@@ -19,14 +19,32 @@ data class UdpConfig(
     val queueSize: Int,
 )
 
+data class AuthConfig(
+    val appEnv: String,
+    val issuer: String,
+    val audience: String,
+    val accessTokenSecret: String,
+    val accessTokenTtlMinutes: Long,
+    val oktaIssuer: String?,
+    val oktaAudience: String?,
+    val oktaClientId: String?,
+    val authMode: String,
+    val devBypassEnabled: Boolean,
+    val devTenantId: Long,
+    val devUserEmail: String,
+    val devRoles: List<String>,
+)
+
 data class AppConfig(
     val database: DatabaseConfig,
     val udp: UdpConfig,
+    val auth: AuthConfig,
 ) {
     companion object {
         fun from(config: ApplicationConfig): AppConfig {
             val db = config.config("titlis.database")
             val udp = config.config("titlis.udp")
+            val auth = config.config("titlis.auth")
             return AppConfig(
                 database = DatabaseConfig(
                     url = propertyOrEnv(
@@ -92,6 +110,83 @@ data class AppConfig(
                         default = "10000",
                     ).toInt(),
                 ),
+                auth = AuthConfig(
+                    appEnv = propertyOrEnv(
+                        config = auth,
+                        path = "appEnv",
+                        env = "TITLIS_APP_ENV",
+                        default = "local",
+                    ),
+                    issuer = propertyOrEnv(
+                        config = auth,
+                        path = "issuer",
+                        env = "TITLIS_AUTH_ISSUER",
+                        default = "titlis-local",
+                    ),
+                    audience = propertyOrEnv(
+                        config = auth,
+                        path = "audience",
+                        env = "TITLIS_AUTH_AUDIENCE",
+                        default = "titlis-ui",
+                    ),
+                    accessTokenSecret = propertyOrEnv(
+                        config = auth,
+                        path = "accessTokenSecret",
+                        env = "TITLIS_AUTH_ACCESS_TOKEN_SECRET",
+                        default = "titlis-dev-secret-change-me",
+                    ),
+                    accessTokenTtlMinutes = propertyOrEnv(
+                        config = auth,
+                        path = "accessTokenTtlMinutes",
+                        env = "TITLIS_AUTH_ACCESS_TOKEN_TTL_MINUTES",
+                        default = "720",
+                    ).toLong(),
+                    oktaIssuer = optionalPropertyOrEnv(
+                        config = auth,
+                        path = "oktaIssuer",
+                        env = "TITLIS_OKTA_ISSUER",
+                    ),
+                    oktaAudience = optionalPropertyOrEnv(
+                        config = auth,
+                        path = "oktaAudience",
+                        env = "TITLIS_OKTA_AUDIENCE",
+                    ),
+                    oktaClientId = optionalPropertyOrEnv(
+                        config = auth,
+                        path = "oktaClientId",
+                        env = "TITLIS_OKTA_CLIENT_ID",
+                    ),
+                    authMode = propertyOrEnv(
+                        config = auth,
+                        path = "authMode",
+                        env = "TITLIS_AUTH_MODE",
+                        default = "mixed",
+                    ),
+                    devBypassEnabled = propertyOrEnv(
+                        config = auth,
+                        path = "devBypassEnabled",
+                        env = "TITLIS_DEV_BYPASS_ENABLED",
+                        default = "true",
+                    ).toBooleanStrictOrNull() ?: true,
+                    devTenantId = propertyOrEnv(
+                        config = auth,
+                        path = "devTenantId",
+                        env = "TITLIS_DEV_TENANT_ID",
+                        default = "1",
+                    ).toLong(),
+                    devUserEmail = propertyOrEnv(
+                        config = auth,
+                        path = "devUserEmail",
+                        env = "TITLIS_DEV_USER_EMAIL",
+                        default = "dev@titlis.local",
+                    ),
+                    devRoles = propertyOrEnv(
+                        config = auth,
+                        path = "devRoles",
+                        env = "TITLIS_DEV_ROLES",
+                        default = "titlis.admin",
+                    ).split(",").map(String::trim).filter(String::isNotBlank),
+                ),
             )
         }
 
@@ -110,6 +205,22 @@ data class AppConfig(
             return configured
                 ?: System.getenv(env)
                 ?: default
+        }
+
+        private fun optionalPropertyOrEnv(
+            config: ApplicationConfig,
+            path: String,
+            env: String,
+        ): String? {
+            val configured = try {
+                config.property(path).getString()
+            } catch (_: ApplicationConfigurationException) {
+                null
+            }
+
+            return configured
+                ?.takeIf { it.isNotBlank() }
+                ?: System.getenv(env)?.takeIf { it.isNotBlank() }
         }
     }
 }

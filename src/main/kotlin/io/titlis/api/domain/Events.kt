@@ -10,12 +10,14 @@ data class UdpEnvelope(
     val v: Int,
     val t: String,
     val ts: Long,
+    @SerialName("tenant_id") val tenantId: Long? = null,
     val data: JsonObject,
 )
 
 @Serializable
 data class ScorecardEvaluatedEvent(
     @SerialName("workload_id") val workloadId: String,
+    @SerialName("tenant_id") val tenantId: Long? = null,
     val namespace: String,
     val workload: String,
     val cluster: String,
@@ -69,6 +71,7 @@ data class ValidationResultData(
 @Serializable
 data class RemediationEvent(
     @SerialName("workload_id") val workloadId: String,
+    @SerialName("tenant_id") val tenantId: Long? = null,
     val namespace: String,
     val workload: String,
     val status: String,
@@ -89,6 +92,7 @@ data class RemediationEvent(
 @Serializable
 data class SloReconciledEvent(
     @SerialName("slo_config_id") val sloConfigId: String,
+    @SerialName("tenant_id") val tenantId: Long? = null,
     val namespace: String,
     val cluster: String,
     val environment: String = "unknown",
@@ -113,6 +117,7 @@ data class SloReconciledEvent(
 @Serializable
 data class NotificationSentEvent(
     @SerialName("workload_id") val workloadId: String? = null,
+    @SerialName("tenant_id") val tenantId: Long? = null,
     @SerialName("namespace_id") val namespaceId: String? = null,
     val namespace: String,
     @SerialName("notification_type") val notificationType: String,
@@ -127,6 +132,7 @@ data class NotificationSentEvent(
 @Serializable
 data class ResourceMetricsEvent(
     @SerialName("workload_id") val workloadId: String,
+    @SerialName("tenant_id") val tenantId: Long? = null,
     val namespace: String,
     val workload: String,
     @SerialName("container_name") val containerName: String? = null,

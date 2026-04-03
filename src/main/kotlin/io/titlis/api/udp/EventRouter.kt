@@ -34,23 +34,23 @@ class EventRouter(
         when (envelope.t) {
             "scorecard_evaluated" -> {
                 val event = json.decodeFromJsonElement<ScorecardEvaluatedEvent>(envelope.data)
-                scorecardRepo.upsertScorecard(event)
+                scorecardRepo.upsertScorecard(event, envelope.tenantId ?: event.tenantId)
             }
             "remediation_started", "remediation_updated" -> {
                 val event = json.decodeFromJsonElement<RemediationEvent>(envelope.data)
-                remediationRepo.upsertRemediation(event)
+                remediationRepo.upsertRemediation(event, envelope.tenantId ?: event.tenantId)
             }
             "slo_reconciled" -> {
                 val event = json.decodeFromJsonElement<SloReconciledEvent>(envelope.data)
-                sloRepo.upsertSloConfig(event)
+                sloRepo.upsertSloConfig(event, envelope.tenantId ?: event.tenantId)
             }
             "notification_sent" -> {
                 val event = json.decodeFromJsonElement<NotificationSentEvent>(envelope.data)
-                scorecardRepo.insertNotificationLog(event)
+                scorecardRepo.insertNotificationLog(event, envelope.tenantId ?: event.tenantId)
             }
             "resource_metrics" -> {
                 val event = json.decodeFromJsonElement<ResourceMetricsEvent>(envelope.data)
-                metricsRepo.insertResourceMetrics(event)
+                metricsRepo.insertResourceMetrics(event, envelope.tenantId ?: event.tenantId)
             }
             else -> logger.warn("Unknown event type: ${envelope.t}")
         }

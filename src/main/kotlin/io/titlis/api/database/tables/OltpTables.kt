@@ -190,3 +190,70 @@ object SloConfigs : Table("titlis_oltp.slo_configs") {
     val updatedAt            = timestampWithTimeZone("updated_at")
     override val primaryKey = PrimaryKey(sloConfigId)
 }
+
+object PlatformUsers : Table("titlis_oltp.platform_users") {
+    val platformUserId = long("platform_user_id").autoIncrement()
+    val tenantId = long("tenant_id").references(Tenants.tenantId)
+    val email = varchar("email", 320)
+    val displayName = varchar("display_name", 255).nullable()
+    val passwordHash = text("password_hash").nullable()
+    val platformRole = varchar("platform_role", 50).default("viewer")
+    val isActive = bool("is_active").default(true)
+    val isBreakGlass = bool("is_break_glass").default(false)
+    val lastLoginAt = timestampWithTimeZone("last_login_at").nullable()
+    val createdAt = timestampWithTimeZone("created_at")
+    val updatedAt = timestampWithTimeZone("updated_at")
+    override val primaryKey = PrimaryKey(platformUserId)
+}
+
+object TenantAuthIntegrations : Table("titlis_oltp.tenant_auth_integrations") {
+    val tenantAuthIntegrationId = long("tenant_auth_integration_id").autoIncrement()
+    val tenantId = long("tenant_id").references(Tenants.tenantId)
+    val providerType = varchar("provider_type", 50)
+    val integrationKind = varchar("integration_kind", 50).default("sso_oidc")
+    val integrationName = varchar("integration_name", 255)
+    val isEnabled = bool("is_enabled").default(true)
+    val isPrimary = bool("is_primary").default(false)
+    val issuerUrl = varchar("issuer_url", 500).nullable()
+    val clientId = varchar("client_id", 255).nullable()
+    val audience = varchar("audience", 255).nullable()
+    val scopes = varchar("scopes", 500).nullable()
+    val configJson = jsonbText("config_json").nullable()
+    val configuredByPlatformUserId = long("configured_by_platform_user_id").references(PlatformUsers.platformUserId).nullable()
+    val verifiedAt = timestampWithTimeZone("verified_at").nullable()
+    val activatedAt = timestampWithTimeZone("activated_at").nullable()
+    val createdAt = timestampWithTimeZone("created_at")
+    val updatedAt = timestampWithTimeZone("updated_at")
+    override val primaryKey = PrimaryKey(tenantAuthIntegrationId)
+}
+
+object UserAuthIdentities : Table("titlis_oltp.user_auth_identities") {
+    val userAuthIdentityId = long("user_auth_identity_id").autoIncrement()
+    val platformUserId = long("platform_user_id").references(PlatformUsers.platformUserId)
+    val tenantAuthIntegrationId = long("tenant_auth_integration_id").references(TenantAuthIntegrations.tenantAuthIntegrationId)
+    val providerSubject = varchar("provider_subject", 255)
+    val issuerUrl = varchar("issuer_url", 500).nullable()
+    val emailSnapshot = varchar("email_snapshot", 320).nullable()
+    val claimsSnapshot = jsonbText("claims_snapshot").nullable()
+    val lastAuthenticatedAt = timestampWithTimeZone("last_authenticated_at").nullable()
+    val createdAt = timestampWithTimeZone("created_at")
+    val updatedAt = timestampWithTimeZone("updated_at")
+    override val primaryKey = PrimaryKey(userAuthIdentityId)
+}
+
+object PlatformUserInvites : Table("titlis_oltp.platform_user_invites") {
+    val platformUserInviteId = long("platform_user_invite_id").autoIncrement()
+    val tenantId = long("tenant_id").references(Tenants.tenantId)
+    val email = varchar("email", 320)
+    val targetRole = varchar("target_role", 50).default("viewer")
+    val inviteStatus = varchar("invite_status", 50).default("pending")
+    val tenantAuthIntegrationId = long("tenant_auth_integration_id").references(TenantAuthIntegrations.tenantAuthIntegrationId).nullable()
+    val invitedByPlatformUserId = long("invited_by_platform_user_id").references(PlatformUsers.platformUserId).nullable()
+    val acceptedByPlatformUserId = long("accepted_by_platform_user_id").references(PlatformUsers.platformUserId).nullable()
+    val inviteToken = varchar("invite_token", 255).nullable()
+    val expiresAt = timestampWithTimeZone("expires_at").nullable()
+    val acceptedAt = timestampWithTimeZone("accepted_at").nullable()
+    val createdAt = timestampWithTimeZone("created_at")
+    val updatedAt = timestampWithTimeZone("updated_at")
+    override val primaryKey = PrimaryKey(platformUserInviteId)
+}

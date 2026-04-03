@@ -2,20 +2,30 @@ package io.titlis.api
 
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
+import io.ktor.server.auth.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.response.*
+import io.titlis.api.auth.appAuth
+import io.titlis.api.auth.LocalTokenService
+import io.titlis.api.auth.OktaTokenVerifier
+import io.titlis.api.auth.oktaJwtAuth
 import io.titlis.api.config.AppConfig
 import io.titlis.api.database.DatabaseFactory
+import io.titlis.api.repository.AuthRepository
 import io.titlis.api.repository.MetricsRepository
 import io.titlis.api.repository.RemediationRepository
 import io.titlis.api.repository.ScorecardRepository
 import io.titlis.api.repository.SloRepository
+import io.titlis.api.auth.PasswordHasher
+import io.titlis.api.auth.RequestAuthenticator
+import io.titlis.api.routes.authRoutes
 import io.titlis.api.routes.healthRoutes
 import io.titlis.api.routes.remediationRoutes
 import io.titlis.api.routes.scorecardRoutes
+import io.titlis.api.routes.settingsAuthRoutes
 import io.titlis.api.routes.sloRoutes
 import io.titlis.api.udp.EventRouter
 import io.titlis.api.udp.UdpServer
@@ -37,6 +47,11 @@ fun Application.module() {
     val remediationRepo = RemediationRepository()
     val sloRepo         = SloRepository()
     val metricsRepo     = MetricsRepository()
+    val passwordHasher  = PasswordHasher()
+    val authRepo        = AuthRepository(passwordHasher)
+    val tokenService    = LocalTokenService(config.auth)
+    val oktaVerifier    = OktaTokenVerifier(config.auth)
+    val requestAuthenticator = RequestAuthenticator(config.auth, authRepo, tokenService, oktaVerifier)
 
     val router    = EventRouter(scorecardRepo, remediationRepo, sloRepo, metricsRepo)
     val udpServer = UdpServer(config.udp, router)
@@ -46,6 +61,11 @@ fun Application.module() {
 
     install(ContentNegotiation) {
         json(Json { ignoreUnknownKeys = true; prettyPrint = false })
+    }
+
+    install(Authentication) {
+        appAuth(requestAuthenticator)
+        oktaJwtAuth(oktaVerifier, authRepo)
     }
 
     install(StatusPages) {
@@ -58,7 +78,9 @@ fun Application.module() {
     }
 
     healthRoutes()
-    scorecardRoutes(scorecardRepo)
-    remediationRoutes(remediationRepo)
-    sloRoutes(sloRepo)
+    authRoutes(authRepo, tokenService, requestAuthenticator)
+    settingsAuthRoutes(authRepo)
+    scorecardRoutes(scorecardRepo, requestAuthenticator)
+    remediationRoutes(remediationRepo, requestAuthenticator)
+    sloRoutes(sloRepo, requestAuthenticator)
 }

@@ -5,6 +5,7 @@ import io.titlis.api.database.tables.AppRemediations
 import io.titlis.api.database.tables.RemediationHistory
 import io.titlis.api.database.tables.Workloads
 import io.titlis.api.domain.RemediationEvent
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.select
 import org.jetbrains.exposed.sql.upsert
@@ -21,8 +22,12 @@ class RemediationRepository {
             .singleOrNull()?.get(Workloads.workloadId)
             ?: error("Workload não encontrado para k8s_uid=$k8sUid")
 
-    suspend fun upsertRemediation(event: RemediationEvent) = dbQuery {
+    suspend fun upsertRemediation(event: RemediationEvent, tenantIdHint: Long? = null) = dbQuery {
         val workloadId = resolveWorkloadId(event.workloadId)
+        val tenantId = chooseTenantId(
+            trustedTenantId = tenantIdHint,
+            derivedTenantId = resolveTenantIdByWorkloadId(workloadId) ?: resolveSingleActiveTenantIdOrNull(),
+        )
         val now = OffsetDateTime.now(ZoneOffset.UTC)
 
         // SCD Type 4 — a aplicação registra transição de estado em remediation_history (sem triggers DML).
@@ -38,6 +43,7 @@ class RemediationRepository {
         ) {
             RemediationHistory.insert {
                 it[RemediationHistory.workloadId] = workloadId
+                it[RemediationHistory.tenantId] = tenantId
                 it[RemediationHistory.remediationVersion] = event.version
                 it[RemediationHistory.appRemediationStatus] = event.status
                 it[RemediationHistory.previousAppRemediationStatus] =
@@ -60,6 +66,7 @@ class RemediationRepository {
 
         AppRemediations.upsert(AppRemediations.workloadId) {
             it[AppRemediations.workloadId]    = workloadId
+            it[AppRemediations.tenantId]      = tenantId
             it[AppRemediations.version]       = event.version
             it[AppRemediations.appRemediationStatus] = event.status
             it[AppRemediations.githubPrNumber] = event.githubPrNumber
@@ -77,15 +84,17 @@ class RemediationRepository {
         }
     }
 
-    suspend fun getByWorkload(k8sUid: String): Map<String, Any?>? = dbQuery {
-        val workloadId = Workloads
-            .select(Workloads.workloadId)
-            .where { Workloads.k8sUid eq k8sUid }
-            .singleOrNull()?.get(Workloads.workloadId) ?: return@dbQuery null
+    suspend fun getByWorkload(k8sUid: String, tenantId: Long): Map<String, Any?>? = dbQuery {
+        val workloadId = tenantScopedWorkloadRow(k8sUid, tenantId)
+            ?.get(Workloads.workloadId)
+            ?: return@dbQuery null
 
         AppRemediations
             .select(AppRemediations.columns)
-            .where { AppRemediations.workloadId eq workloadId }
+            .where {
+                (AppRemediations.workloadId eq workloadId) and
+                    (AppRemediations.tenantId eq tenantId)
+            }
             .singleOrNull()
             ?.let { row ->
                 mapOf(

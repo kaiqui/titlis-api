@@ -18,12 +18,17 @@ import java.time.OffsetDateTime
 import java.time.ZoneOffset
 
 class SloRepository {
-    suspend fun upsertSloConfig(event: SloReconciledEvent) = dbQuery {
+    suspend fun upsertSloConfig(event: SloReconciledEvent, tenantIdHint: Long? = null) = dbQuery {
         val now = OffsetDateTime.now(ZoneOffset.UTC)
-        val namespaceIdValue = ensureNamespace(event.cluster, event.environment, event.namespace, now)
+        val tenantId = chooseTenantId(
+            trustedTenantId = tenantIdHint,
+            derivedTenantId = resolveSingleActiveTenantIdOrNull(),
+        )
+        val namespaceIdValue = ensureNamespace(event.cluster, event.environment, event.namespace, now, tenantId)
 
         SloConfigs.upsert(SloConfigs.namespaceId, SloConfigs.sloConfigName) {
             it[SloConfigs.namespaceId] = namespaceIdValue
+            it[SloConfigs.tenantId] = tenantId
             it[SloConfigs.sloConfigName] = event.sloName
             it[SloConfigs.sloType] = event.sloType
             it[SloConfigs.timeframe] = event.timeframe
@@ -52,6 +57,7 @@ class SloRepository {
         SloComplianceHistory.insert {
             it[SloComplianceHistory.sloConfigId] = resolvedSloConfigId
             it[SloComplianceHistory.namespaceId] = namespaceIdValue
+            it[SloComplianceHistory.tenantId] = tenantId
             it[SloComplianceHistory.sloConfigName] = event.sloName
             it[SloComplianceHistory.sloType] = event.sloType
             it[SloComplianceHistory.timeframe] = event.timeframe
@@ -67,12 +73,13 @@ class SloRepository {
         }
     }
 
-    suspend fun getByName(namespace: String, name: String): Map<String, Any?>? = dbQuery {
+    suspend fun getByName(namespace: String, name: String, tenantId: Long): Map<String, Any?>? = dbQuery {
         (SloConfigs innerJoin Namespaces)
             .select(SloConfigs.columns)
             .where {
                 (SloConfigs.sloConfigName eq name) and
-                    (Namespaces.namespaceName eq namespace)
+                    (Namespaces.namespaceName eq namespace) and
+                    (SloConfigs.tenantId eq tenantId)
             }
             .singleOrNull()
             ?.let { row ->
@@ -90,10 +97,11 @@ class SloRepository {
             }
     }
 
-    suspend fun list(namespace: String?, cluster: String?): List<Map<String, Any?>> = dbQuery {
+    suspend fun list(tenantId: Long, namespace: String?, cluster: String?): List<Map<String, Any?>> = dbQuery {
         val query = (SloConfigs innerJoin Namespaces innerJoin Clusters)
             .selectAll()
             .apply {
+                andWhere { SloConfigs.tenantId eq tenantId }
                 if (!namespace.isNullOrBlank()) {
                     andWhere { Namespaces.namespaceName eq namespace }
                 }
@@ -128,9 +136,15 @@ class SloRepository {
         environmentValue: String,
         namespaceNameValue: String,
         now: OffsetDateTime,
+        tenantIdHint: Long?,
     ): Long {
+        val tenantId = chooseTenantId(
+            trustedTenantId = tenantIdHint,
+            derivedTenantId = resolveSingleActiveTenantIdOrNull(),
+        )
         Clusters.upsert(Clusters.clusterName) {
             it[Clusters.clusterName] = clusterNameValue
+            it[Clusters.tenantId] = tenantId
             it[Clusters.environment] = environmentValue
             it[Clusters.isActive] = true
             it[Clusters.updatedAt] = now

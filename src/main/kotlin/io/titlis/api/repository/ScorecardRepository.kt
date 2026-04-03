@@ -18,8 +18,12 @@ import java.time.ZoneOffset
 
 class ScorecardRepository {
 
-    suspend fun upsertScorecard(event: ScorecardEvaluatedEvent) = dbQuery {
+    suspend fun upsertScorecard(event: ScorecardEvaluatedEvent, tenantIdHint: Long? = null) = dbQuery {
         val workloadId = ensureWorkload(event)
+        val tenantId = chooseTenantId(
+            trustedTenantId = tenantIdHint,
+            derivedTenantId = resolveTenantIdByWorkloadId(workloadId) ?: resolveSingleActiveTenantIdOrNull(),
+        )
         val now = OffsetDateTime.now(ZoneOffset.UTC)
         val normalizedComplianceStatus = event.complianceStatus.uppercase()
 
@@ -71,6 +75,7 @@ class ScorecardRepository {
 
             AppScorecardHistory.insert {
                 it[AppScorecardHistory.workloadId] = workloadId
+                it[AppScorecardHistory.tenantId] = tenantId
                 it[AppScorecardHistory.scorecardVersion] =
                     existing[AppScorecards.version]
                 it[AppScorecardHistory.overallScore] =
@@ -123,6 +128,7 @@ class ScorecardRepository {
 
         AppScorecards.upsert(AppScorecards.workloadId) {
             it[AppScorecards.workloadId] = workloadId
+            it[AppScorecards.tenantId] = tenantId
             it[AppScorecards.version] = event.scorecardVersion
             it[AppScorecards.overallScore] = event.overallScore.toBigDecimal()
             it[AppScorecards.complianceStatus] = normalizedComplianceStatus
@@ -178,6 +184,7 @@ class ScorecardRepository {
 
         ScorecardScores.insert {
             it[ScorecardScores.workloadId] = workloadId
+            it[ScorecardScores.tenantId] = tenantId
             it[ScorecardScores.overallScore] = event.overallScore.toBigDecimal()
             it[ScorecardScores.complianceStatus] = normalizedComplianceStatus
             it[ScorecardScores.passedRules] = event.passedRules
@@ -196,14 +203,21 @@ class ScorecardRepository {
         }
     }
 
-    suspend fun insertNotificationLog(event: NotificationSentEvent) = dbQuery {
+    suspend fun insertNotificationLog(event: NotificationSentEvent, tenantIdHint: Long? = null) = dbQuery {
         val resolvedWorkloadId = event.workloadId?.let { id -> resolveWorkloadId(id) }
         val resolvedNamespaceId =
             resolvedWorkloadId?.let { workloadId -> resolveNamespaceIdByWorkload(workloadId) }
+        val resolvedTenantId =
+            chooseTenantId(
+                trustedTenantId = tenantIdHint,
+                derivedTenantId = resolvedWorkloadId?.let { workloadId -> resolveTenantIdByWorkloadId(workloadId) }
+                    ?: resolveSingleActiveTenantIdOrNull(),
+            )
 
         NotificationLog.insert {
             it[NotificationLog.workloadId] = resolvedWorkloadId
             it[NotificationLog.namespaceId] = resolvedNamespaceId
+            it[NotificationLog.tenantId] = resolvedTenantId
             it[NotificationLog.notificationType] = event.notificationType
             it[NotificationLog.notificationSeverity] = event.severity.uppercase()
             it[NotificationLog.channel] = event.channel
@@ -216,11 +230,8 @@ class ScorecardRepository {
         }
     }
 
-    suspend fun getByWorkloadId(k8sUid: String): Map<String, Any?>? = dbQuery {
-        val workloadId = Workloads
-            .select(Workloads.workloadId)
-            .where { Workloads.k8sUid eq k8sUid }
-            .singleOrNull()
+    suspend fun getByWorkloadId(k8sUid: String, tenantId: Long): Map<String, Any?>? = dbQuery {
+        val workloadId = tenantScopedWorkloadRow(k8sUid, tenantId)
             ?.get(Workloads.workloadId)
             ?: return@dbQuery null
 
@@ -245,7 +256,10 @@ class ScorecardRepository {
                 AppScorecards.warningCount,
                 AppScorecards.evaluatedAt,
             )
-            .where { Workloads.workloadId eq workloadId }
+            .where {
+                (Workloads.workloadId eq workloadId) and
+                    (Clusters.tenantId eq tenantId)
+            }
             .singleOrNull()
             ?: return@dbQuery null
 
@@ -371,8 +385,10 @@ class ScorecardRepository {
         environmentValue: String,
         now: OffsetDateTime,
     ): Long {
+        val tenantId = resolveSingleActiveTenantIdOrNull()
         Clusters.upsert(Clusters.clusterName) {
             it[Clusters.clusterName] = clusterNameValue
+            it[Clusters.tenantId] = tenantId
             it[Clusters.environment] = environmentValue
             it[Clusters.isActive] = true
             it[Clusters.updatedAt] = now
@@ -477,7 +493,7 @@ class ScorecardRepository {
             .where { ValidationRules.ruleId eq ruleIdValue }
             .single()[ValidationRules.validationRuleId]
 
-    suspend fun getDashboard(clusterName: String? = null): List<Map<String, Any?>> = dbQuery {
+    suspend fun getDashboard(tenantId: Long, clusterName: String? = null): List<Map<String, Any?>> = dbQuery {
         val query = (Workloads innerJoin Namespaces innerJoin Clusters)
             .leftJoin(AppScorecards, { Workloads.workloadId }, { AppScorecards.workloadId })
             .leftJoin(AppRemediations, { Workloads.workloadId }, { AppRemediations.workloadId })
@@ -495,7 +511,9 @@ class ScorecardRepository {
                 AppRemediations.githubPrUrl, AppRemediations.githubPrNumber,
             )
             .where {
-                (Workloads.isActive eq true) and (Namespaces.isExcluded eq false)
+                (Workloads.isActive eq true) and
+                    (Namespaces.isExcluded eq false) and
+                    (Clusters.tenantId eq tenantId)
             }
 
         if (clusterName != null) {

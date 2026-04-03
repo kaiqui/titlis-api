@@ -10,16 +10,21 @@ import java.time.OffsetDateTime
 import java.time.ZoneOffset
 
 class MetricsRepository {
-    suspend fun insertResourceMetrics(event: ResourceMetricsEvent) = dbQuery {
+    suspend fun insertResourceMetrics(event: ResourceMetricsEvent, tenantIdHint: Long? = null) = dbQuery {
         val workloadId = Workloads
             .select(Workloads.workloadId)
             .where { Workloads.k8sUid eq event.workloadId }
             .singleOrNull()
             ?.get(Workloads.workloadId)
             ?: error("Workload não encontrado para k8s_uid=${event.workloadId}")
+        val tenantId = chooseTenantId(
+            trustedTenantId = tenantIdHint,
+            derivedTenantId = resolveTenantIdByWorkloadId(workloadId) ?: resolveSingleActiveTenantIdOrNull(),
+        )
 
         ResourceMetrics.insert {
             it[ResourceMetrics.workloadId] = workloadId
+            it[ResourceMetrics.tenantId] = tenantId
             it[ResourceMetrics.containerName] = event.containerName
             it[ResourceMetrics.cpuAvgMillicores] =
                 event.cpuAvgMillicores?.toBigDecimal()
