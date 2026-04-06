@@ -16,10 +16,18 @@ import org.jetbrains.exposed.sql.upsert
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 
+class ClusterOwnershipConflictException(
+    val clusterName: String,
+    val ownerTenantId: Long,
+    val requestingTenantId: Long,
+) : RuntimeException(
+    "Cluster '$clusterName' pertence ao tenant $ownerTenantId; evento rejeitado do tenant $requestingTenantId",
+)
+
 class ScorecardRepository {
 
     suspend fun upsertScorecard(event: ScorecardEvaluatedEvent, tenantIdHint: Long? = null) = dbQuery {
-        val workloadId = ensureWorkload(event)
+        val workloadId = ensureWorkload(event, tenantIdHint)
         val tenantId = chooseTenantId(
             trustedTenantId = tenantIdHint,
             derivedTenantId = resolveTenantIdByWorkloadId(workloadId) ?: resolveSingleActiveTenantIdOrNull(),
@@ -359,9 +367,9 @@ class ScorecardRepository {
             .singleOrNull()
             ?.get(Workloads.namespaceId)
 
-    private fun ensureWorkload(event: ScorecardEvaluatedEvent): Long {
+    private fun ensureWorkload(event: ScorecardEvaluatedEvent, tenantId: Long? = null): Long {
         val now = OffsetDateTime.now(ZoneOffset.UTC)
-        val clusterId = ensureCluster(event.cluster, event.environment, now)
+        val clusterId = ensureCluster(event.cluster, event.environment, now, tenantId)
         val namespaceId = ensureNamespace(clusterId, event.namespace, now)
 
         Workloads.upsert(Workloads.namespaceId, Workloads.workloadName, Workloads.workloadKind) {
@@ -384,11 +392,31 @@ class ScorecardRepository {
         clusterNameValue: String,
         environmentValue: String,
         now: OffsetDateTime,
+        tenantId: Long? = null,
     ): Long {
-        val tenantId = resolveSingleActiveTenantIdOrNull()
-        Clusters.upsert(Clusters.clusterName) {
+        val resolvedTenantId = tenantId ?: resolveSingleActiveTenantIdOrNull()
+
+        val existing = Clusters
+            .select(Clusters.clusterId, Clusters.tenantId)
+            .where { Clusters.clusterName eq clusterNameValue }
+            .singleOrNull()
+
+        if (existing != null) {
+            val ownerTenantId = existing[Clusters.tenantId]
+            if (ownerTenantId != null && resolvedTenantId != null && ownerTenantId != resolvedTenantId) {
+                throw ClusterOwnershipConflictException(clusterNameValue, ownerTenantId, resolvedTenantId)
+            }
+            Clusters.update({ Clusters.clusterId eq existing[Clusters.clusterId] }) {
+                it[Clusters.environment] = environmentValue
+                it[Clusters.isActive] = true
+                it[Clusters.updatedAt] = now
+            }
+            return existing[Clusters.clusterId]
+        }
+
+        Clusters.insert {
             it[Clusters.clusterName] = clusterNameValue
-            it[Clusters.tenantId] = tenantId
+            it[Clusters.tenantId] = resolvedTenantId
             it[Clusters.environment] = environmentValue
             it[Clusters.isActive] = true
             it[Clusters.updatedAt] = now

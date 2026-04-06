@@ -16,18 +16,21 @@ import io.titlis.api.auth.AuthMeResponse
 import io.titlis.api.auth.AuthSessionResponse
 import io.titlis.api.auth.BootstrapAlreadyConfiguredException
 import io.titlis.api.auth.BootstrapSetupRequest
+import io.titlis.api.auth.BootstrapSetupResponse
 import io.titlis.api.auth.InvalidCredentialsException
 import io.titlis.api.auth.LocalLoginRequest
 import io.titlis.api.auth.LocalTokenService
 import io.titlis.api.auth.protectedProviderNames
 import io.titlis.api.auth.RequestAuthenticator
 import io.titlis.api.auth.TenantRegistrationConflictException
+import io.titlis.api.repository.ApiKeyRepository
 import io.titlis.api.repository.AuthRepository
 
 fun Application.authRoutes(
     repo: AuthRepository,
     tokenService: LocalTokenService,
     requestAuthenticator: RequestAuthenticator,
+    apiKeyRepo: ApiKeyRepository,
 ) {
     routing {
         route("/v1/auth") {
@@ -40,12 +43,18 @@ fun Application.authRoutes(
                     val request = call.receive<BootstrapSetupRequest>()
                     val user = repo.setupBootstrap(request)
                     val token = tokenService.issue(user)
+                    val (_, rawApiKey) = apiKeyRepo.create(
+                        tenantId = user.tenantId,
+                        description = "Default operator key",
+                        createdByUserId = user.id,
+                    )
                     call.respond(
                         HttpStatusCode.Created,
-                        AuthSessionResponse(
+                        BootstrapSetupResponse(
                             accessToken = token.value,
                             expiresAt = token.expiresAt.toString(),
                             user = user.toResponse(),
+                            operatorApiKey = rawApiKey,
                         ),
                     )
                 } catch (cause: TenantRegistrationConflictException) {

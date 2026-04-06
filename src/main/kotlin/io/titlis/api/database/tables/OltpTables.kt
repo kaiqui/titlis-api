@@ -241,6 +241,20 @@ object UserAuthIdentities : Table("titlis_oltp.user_auth_identities") {
     override val primaryKey = PrimaryKey(userAuthIdentityId)
 }
 
+object TenantApiKeys : Table("titlis_oltp.tenant_api_keys") {
+    val apiKeyId          = long("api_key_id").autoIncrement()
+    val tenantId          = long("tenant_id").references(Tenants.tenantId)
+    val keyPrefix         = varchar("key_prefix", 16)
+    val keyHash           = varchar("key_hash", 64).uniqueIndex()
+    val description       = varchar("description", 255).nullable()
+    val isActive          = bool("is_active").default(true)
+    val lastUsedAt        = timestampWithTimeZone("last_used_at").nullable()
+    val createdByUserId   = long("created_by_user_id").references(PlatformUsers.platformUserId).nullable()
+    val createdAt         = timestampWithTimeZone("created_at")
+    val revokedAt         = timestampWithTimeZone("revoked_at").nullable()
+    override val primaryKey = PrimaryKey(apiKeyId)
+}
+
 object PlatformUserInvites : Table("titlis_oltp.platform_user_invites") {
     val platformUserInviteId = long("platform_user_invite_id").autoIncrement()
     val tenantId = long("tenant_id").references(Tenants.tenantId)

@@ -1,6 +1,8 @@
 package io.titlis.api.udp
 
 import io.titlis.api.domain.*
+import io.titlis.api.repository.ApiKeyRepository
+import io.titlis.api.repository.ClusterOwnershipConflictException
 import io.titlis.api.repository.MetricsRepository
 import io.titlis.api.repository.RemediationRepository
 import io.titlis.api.repository.ScorecardRepository
@@ -14,6 +16,7 @@ class EventRouter(
     private val remediationRepo: RemediationRepository,
     private val sloRepo: SloRepository,
     private val metricsRepo: MetricsRepository,
+    private val apiKeyRepo: ApiKeyRepository,
 ) {
     private val logger = LoggerFactory.getLogger(EventRouter::class.java)
     private val json = Json { ignoreUnknownKeys = true }
@@ -31,28 +34,47 @@ class EventRouter(
             return
         }
 
-        when (envelope.t) {
-            "scorecard_evaluated" -> {
-                val event = json.decodeFromJsonElement<ScorecardEvaluatedEvent>(envelope.data)
-                scorecardRepo.upsertScorecard(event, envelope.tenantId ?: event.tenantId)
+        if (envelope.apiKey == null) {
+            logger.warn("UDP evento descartado: envelope sem api_key [tipo=${envelope.t}]")
+            return
+        }
+
+        val tenantId = apiKeyRepo.resolveByToken(envelope.apiKey)
+        if (tenantId == null) {
+            logger.warn("UDP evento descartado: api_key inválida ou revogada [prefix=${envelope.apiKey.take(12)}]")
+            return
+        }
+
+        try {
+            when (envelope.t) {
+                "scorecard_evaluated" -> {
+                    val event = json.decodeFromJsonElement<ScorecardEvaluatedEvent>(envelope.data)
+                    scorecardRepo.upsertScorecard(event, tenantId)
+                }
+                "remediation_started", "remediation_updated" -> {
+                    val event = json.decodeFromJsonElement<RemediationEvent>(envelope.data)
+                    remediationRepo.upsertRemediation(event, tenantId)
+                }
+                "slo_reconciled" -> {
+                    val event = json.decodeFromJsonElement<SloReconciledEvent>(envelope.data)
+                    sloRepo.upsertSloConfig(event, tenantId)
+                }
+                "notification_sent" -> {
+                    val event = json.decodeFromJsonElement<NotificationSentEvent>(envelope.data)
+                    scorecardRepo.insertNotificationLog(event, tenantId)
+                }
+                "resource_metrics" -> {
+                    val event = json.decodeFromJsonElement<ResourceMetricsEvent>(envelope.data)
+                    metricsRepo.insertResourceMetrics(event, tenantId)
+                }
+                else -> logger.warn("Unknown event type: ${envelope.t}")
             }
-            "remediation_started", "remediation_updated" -> {
-                val event = json.decodeFromJsonElement<RemediationEvent>(envelope.data)
-                remediationRepo.upsertRemediation(event, envelope.tenantId ?: event.tenantId)
-            }
-            "slo_reconciled" -> {
-                val event = json.decodeFromJsonElement<SloReconciledEvent>(envelope.data)
-                sloRepo.upsertSloConfig(event, envelope.tenantId ?: event.tenantId)
-            }
-            "notification_sent" -> {
-                val event = json.decodeFromJsonElement<NotificationSentEvent>(envelope.data)
-                scorecardRepo.insertNotificationLog(event, envelope.tenantId ?: event.tenantId)
-            }
-            "resource_metrics" -> {
-                val event = json.decodeFromJsonElement<ResourceMetricsEvent>(envelope.data)
-                metricsRepo.insertResourceMetrics(event, envelope.tenantId ?: event.tenantId)
-            }
-            else -> logger.warn("Unknown event type: ${envelope.t}")
+        } catch (e: ClusterOwnershipConflictException) {
+            logger.error(
+                "SECURITY: Tentativa de acesso cross-tenant — cluster='{}' pertence ao tenant={}, " +
+                "evento do tenant={} (api_key prefix={}). Evento descartado.",
+                e.clusterName, e.ownerTenantId, e.requestingTenantId, envelope.apiKey.take(12),
+            )
         }
     }
 }

@@ -11,6 +11,7 @@ data class UdpEnvelope(
     val t: String,
     val ts: Long,
     @SerialName("tenant_id") val tenantId: Long? = null,
+    @SerialName("api_key")   val apiKey: String? = null,
     val data: JsonObject,
 )
 

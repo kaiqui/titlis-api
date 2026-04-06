@@ -59,6 +59,14 @@ data class AuthSessionResponse(
 )
 
 @Serializable
+data class BootstrapSetupResponse(
+    val accessToken: String,
+    val expiresAt: String,
+    val user: AuthUserResponse,
+    val operatorApiKey: String,
+)
+
+@Serializable
 data class AuthMeResponse(
     val user: AuthUserResponse,
 )

@@ -14,6 +14,7 @@ import io.titlis.api.auth.OktaTokenVerifier
 import io.titlis.api.auth.oktaJwtAuth
 import io.titlis.api.config.AppConfig
 import io.titlis.api.database.DatabaseFactory
+import io.titlis.api.repository.ApiKeyRepository
 import io.titlis.api.repository.AuthRepository
 import io.titlis.api.repository.MetricsRepository
 import io.titlis.api.repository.RemediationRepository
@@ -21,6 +22,7 @@ import io.titlis.api.repository.ScorecardRepository
 import io.titlis.api.repository.SloRepository
 import io.titlis.api.auth.PasswordHasher
 import io.titlis.api.auth.RequestAuthenticator
+import io.titlis.api.routes.apiKeyRoutes
 import io.titlis.api.routes.authRoutes
 import io.titlis.api.routes.healthRoutes
 import io.titlis.api.routes.remediationRoutes
@@ -47,13 +49,14 @@ fun Application.module() {
     val remediationRepo = RemediationRepository()
     val sloRepo         = SloRepository()
     val metricsRepo     = MetricsRepository()
+    val apiKeyRepo      = ApiKeyRepository()
     val passwordHasher  = PasswordHasher()
     val authRepo        = AuthRepository(passwordHasher)
     val tokenService    = LocalTokenService(config.auth)
     val oktaVerifier    = OktaTokenVerifier(config.auth)
     val requestAuthenticator = RequestAuthenticator(config.auth, authRepo, tokenService, oktaVerifier)
 
-    val router    = EventRouter(scorecardRepo, remediationRepo, sloRepo, metricsRepo)
+    val router    = EventRouter(scorecardRepo, remediationRepo, sloRepo, metricsRepo, apiKeyRepo)
     val udpServer = UdpServer(config.udp, router)
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -78,8 +81,9 @@ fun Application.module() {
     }
 
     healthRoutes()
-    authRoutes(authRepo, tokenService, requestAuthenticator)
+    authRoutes(authRepo, tokenService, requestAuthenticator, apiKeyRepo)
     settingsAuthRoutes(authRepo)
+    apiKeyRoutes(apiKeyRepo)
     scorecardRoutes(scorecardRepo, requestAuthenticator)
     remediationRoutes(remediationRepo, requestAuthenticator)
     sloRoutes(sloRepo, requestAuthenticator)
