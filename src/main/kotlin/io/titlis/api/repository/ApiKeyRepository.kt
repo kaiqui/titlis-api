@@ -62,11 +62,27 @@ class ApiKeyRepository {
             .where { (TenantApiKeys.keyHash eq hash) and (TenantApiKeys.isActive eq true) }
             .singleOrNull() ?: return@dbQuery null
 
-        TenantApiKeys.update({ TenantApiKeys.apiKeyId eq row[TenantApiKeys.apiKeyId] }) {
-            it[lastUsedAt] = OffsetDateTime.now(ZoneOffset.UTC)
-        }
-
         row[TenantApiKeys.tenantId]
+    }
+
+    suspend fun updateLastUsedAtAsync(rawToken: String) {
+        try {
+            dbQuery {
+                val hash = sha256Hex(rawToken)
+                val apiKeyId = TenantApiKeys
+                    .select(TenantApiKeys.apiKeyId)
+                    .where { TenantApiKeys.keyHash eq hash }
+                    .singleOrNull()
+                    ?.get(TenantApiKeys.apiKeyId)
+                    ?: return@dbQuery
+
+                TenantApiKeys.update({ TenantApiKeys.apiKeyId eq apiKeyId }) {
+                    it[lastUsedAt] = OffsetDateTime.now(ZoneOffset.UTC)
+                }
+            }
+        } catch (e: Exception) {
+            // Fire-and-forget: falhas em atualizar last_used_at não bloqueiam a requisição
+        }
     }
 
     suspend fun listByTenant(tenantId: Long): List<ApiKeyRecord> = dbQuery {

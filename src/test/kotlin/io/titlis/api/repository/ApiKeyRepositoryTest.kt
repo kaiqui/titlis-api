@@ -2,6 +2,7 @@ package io.titlis.api.repository
 
 import io.titlis.api.database.tables.TenantApiKeys
 import io.titlis.api.database.tables.Tenants
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
@@ -112,11 +113,12 @@ class ApiKeyRepositoryTest {
     }
 
     @Test
-    fun `resolveByToken updates lastUsedAt`() = runTest {
+    fun `updateLastUsedAtAsync updates lastUsedAt for given token`() = runTest {
         dbOp {
             val (record, rawToken) = repo.create(tenantId = 1L, description = null, createdByUserId = null)
             assertNull(record.lastUsedAt)
-            repo.resolveByToken(rawToken)
+            repo.updateLastUsedAtAsync(rawToken)
+            delay(100)  // Allow async update to complete
             val updated = repo.listByTenant(1L).first { it.apiKeyId == record.apiKeyId }
             assertNotNull(updated.lastUsedAt)
         }

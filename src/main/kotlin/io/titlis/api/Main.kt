@@ -56,10 +56,9 @@ fun Application.module() {
     val oktaVerifier    = OktaTokenVerifier(config.auth)
     val requestAuthenticator = RequestAuthenticator(config.auth, authRepo, tokenService, oktaVerifier)
 
-    val router    = EventRouter(scorecardRepo, remediationRepo, sloRepo, metricsRepo, apiKeyRepo)
-    val udpServer = UdpServer(config.udp, router)
-
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val router    = EventRouter(scorecardRepo, remediationRepo, sloRepo, metricsRepo, apiKeyRepo, scope)
+    val udpServer = UdpServer(config.udp, router)
     udpServer.start(scope)
 
     install(ContentNegotiation) {

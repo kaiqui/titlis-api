@@ -64,7 +64,10 @@ class RemediationRepository {
             }
         }
 
-        AppRemediations.upsert(AppRemediations.workloadId) {
+        AppRemediations.upsert(
+            AppRemediations.workloadId,
+            onUpdateExclude = listOf(AppRemediations.createdAt),
+        ) {
             it[AppRemediations.workloadId]    = workloadId
             it[AppRemediations.tenantId]      = tenantId
             it[AppRemediations.version]       = event.version
@@ -80,6 +83,7 @@ class RemediationRepository {
             it[AppRemediations.resolvedAt]    = event.resolvedAt?.let { ts ->
                 OffsetDateTime.parse(ts)
             }
+            it[AppRemediations.createdAt]     = now
             it[AppRemediations.updatedAt]     = now
         }
     }

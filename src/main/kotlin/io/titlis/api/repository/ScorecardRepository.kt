@@ -16,22 +16,14 @@ import org.jetbrains.exposed.sql.upsert
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 
-class ClusterOwnershipConflictException(
-    val clusterName: String,
-    val ownerTenantId: Long,
-    val requestingTenantId: Long,
-) : RuntimeException(
-    "Cluster '$clusterName' pertence ao tenant $ownerTenantId; evento rejeitado do tenant $requestingTenantId",
-)
-
 class ScorecardRepository {
 
     suspend fun upsertScorecard(event: ScorecardEvaluatedEvent, tenantIdHint: Long? = null) = dbQuery {
-        val workloadId = ensureWorkload(event, tenantIdHint)
         val tenantId = chooseTenantId(
             trustedTenantId = tenantIdHint,
-            derivedTenantId = resolveTenantIdByWorkloadId(workloadId) ?: resolveSingleActiveTenantIdOrNull(),
-        )
+            derivedTenantId = resolveSingleActiveTenantIdOrNull(),
+        ) ?: error("Não foi possível resolver tenant_id para o evento scorecard_evaluated")
+        val workloadId = ensureWorkload(event, tenantId)
         val now = OffsetDateTime.now(ZoneOffset.UTC)
         val normalizedComplianceStatus = event.complianceStatus.uppercase()
 
@@ -134,7 +126,10 @@ class ScorecardRepository {
             }
         }
 
-        AppScorecards.upsert(AppScorecards.workloadId) {
+        AppScorecards.upsert(
+            AppScorecards.workloadId,
+            onUpdateExclude = listOf(AppScorecards.createdAt),
+        ) {
             it[AppScorecards.workloadId] = workloadId
             it[AppScorecards.tenantId] = tenantId
             it[AppScorecards.version] = event.scorecardVersion
@@ -150,6 +145,7 @@ class ScorecardRepository {
                 OffsetDateTime.parse(event.evaluatedAt)
             it[AppScorecards.k8sEventType] = event.k8sEventType
             it[AppScorecards.rawMetadata] = event.rawMetadata?.toString()
+            it[AppScorecards.createdAt] = now
             it[AppScorecards.updatedAt] = now
         }
 
@@ -367,12 +363,17 @@ class ScorecardRepository {
             .singleOrNull()
             ?.get(Workloads.namespaceId)
 
-    private fun ensureWorkload(event: ScorecardEvaluatedEvent, tenantId: Long? = null): Long {
+    private fun ensureWorkload(event: ScorecardEvaluatedEvent, tenantId: Long): Long {
         val now = OffsetDateTime.now(ZoneOffset.UTC)
         val clusterId = ensureCluster(event.cluster, event.environment, now, tenantId)
         val namespaceId = ensureNamespace(clusterId, event.namespace, now)
 
-        Workloads.upsert(Workloads.namespaceId, Workloads.workloadName, Workloads.workloadKind) {
+        Workloads.upsert(
+            Workloads.namespaceId,
+            Workloads.workloadName,
+            Workloads.workloadKind,
+            onUpdateExclude = listOf(Workloads.createdAt),
+        ) {
             it[Workloads.namespaceId] = namespaceId
             it[Workloads.workloadName] = event.workload
             it[Workloads.workloadKind] = event.workloadKind
@@ -382,6 +383,7 @@ class ScorecardRepository {
             it[Workloads.labels] = event.labels?.toString()
             it[Workloads.annotations] = event.annotations?.toString()
             it[Workloads.isActive] = true
+            it[Workloads.createdAt] = now
             it[Workloads.updatedAt] = now
         }
 
@@ -392,39 +394,24 @@ class ScorecardRepository {
         clusterNameValue: String,
         environmentValue: String,
         now: OffsetDateTime,
-        tenantId: Long? = null,
+        tenantId: Long,
     ): Long {
-        val resolvedTenantId = tenantId ?: resolveSingleActiveTenantIdOrNull()
-
-        val existing = Clusters
-            .select(Clusters.clusterId, Clusters.tenantId)
-            .where { Clusters.clusterName eq clusterNameValue }
-            .singleOrNull()
-
-        if (existing != null) {
-            val ownerTenantId = existing[Clusters.tenantId]
-            if (ownerTenantId != null && resolvedTenantId != null && ownerTenantId != resolvedTenantId) {
-                throw ClusterOwnershipConflictException(clusterNameValue, ownerTenantId, resolvedTenantId)
-            }
-            Clusters.update({ Clusters.clusterId eq existing[Clusters.clusterId] }) {
-                it[Clusters.environment] = environmentValue
-                it[Clusters.isActive] = true
-                it[Clusters.updatedAt] = now
-            }
-            return existing[Clusters.clusterId]
-        }
-
-        Clusters.insert {
+        Clusters.upsert(
+            Clusters.clusterName,
+            Clusters.tenantId,
+            onUpdateExclude = listOf(Clusters.createdAt),
+        ) {
             it[Clusters.clusterName] = clusterNameValue
-            it[Clusters.tenantId] = resolvedTenantId
+            it[Clusters.tenantId] = tenantId
             it[Clusters.environment] = environmentValue
             it[Clusters.isActive] = true
+            it[Clusters.createdAt] = now
             it[Clusters.updatedAt] = now
         }
 
         return Clusters
             .select(Clusters.clusterId)
-            .where { Clusters.clusterName eq clusterNameValue }
+            .where { (Clusters.clusterName eq clusterNameValue) and (Clusters.tenantId eq tenantId) }
             .single()[Clusters.clusterId]
     }
 
@@ -433,9 +420,14 @@ class ScorecardRepository {
         namespaceNameValue: String,
         now: OffsetDateTime,
     ): Long {
-        Namespaces.upsert(Namespaces.clusterId, Namespaces.namespaceName) {
+        Namespaces.upsert(
+            Namespaces.clusterId,
+            Namespaces.namespaceName,
+            onUpdateExclude = listOf(Namespaces.createdAt),
+        ) {
             it[Namespaces.clusterId] = clusterIdValue
             it[Namespaces.namespaceName] = namespaceNameValue
+            it[Namespaces.createdAt] = now
             it[Namespaces.updatedAt] = now
         }
 
@@ -455,7 +447,10 @@ class ScorecardRepository {
         validations
             .distinctBy { it.ruleId }
             .forEach { validation ->
-                ValidationRules.upsert(ValidationRules.ruleId) {
+                ValidationRules.upsert(
+                    ValidationRules.ruleId,
+                    onUpdateExclude = listOf(ValidationRules.createdAt),
+                ) {
                     it[ValidationRules.ruleId] = validation.ruleId
                     it[ValidationRules.pillar] = validation.pillar.uppercase()
                     it[ValidationRules.ruleSeverity] = validation.severity.uppercase()
@@ -467,6 +462,7 @@ class ScorecardRepository {
                     it[ValidationRules.remediationCategory] =
                         validation.remediationCategory
                     it[ValidationRules.isActive] = true
+                    it[ValidationRules.createdAt] = now
                     it[ValidationRules.updatedAt] = now
                 }
             }

@@ -26,7 +26,11 @@ class SloRepository {
         )
         val namespaceIdValue = ensureNamespace(event.cluster, event.environment, event.namespace, now, tenantId)
 
-        SloConfigs.upsert(SloConfigs.namespaceId, SloConfigs.sloConfigName) {
+        SloConfigs.upsert(
+            SloConfigs.namespaceId,
+            SloConfigs.sloConfigName,
+            onUpdateExclude = listOf(SloConfigs.createdAt),
+        ) {
             it[SloConfigs.namespaceId] = namespaceIdValue
             it[SloConfigs.tenantId] = tenantId
             it[SloConfigs.sloConfigName] = event.sloName
@@ -43,6 +47,7 @@ class SloRepository {
             it[SloConfigs.datadogSloState] = event.datadogSloState
             it[SloConfigs.syncError] = event.syncError
             it[SloConfigs.lastSyncAt] = now
+            it[SloConfigs.createdAt] = now
             it[SloConfigs.updatedAt] = now
         }
 
@@ -141,22 +146,32 @@ class SloRepository {
         val tenantId = chooseTenantId(
             trustedTenantId = tenantIdHint,
             derivedTenantId = resolveSingleActiveTenantIdOrNull(),
-        )
-        Clusters.upsert(Clusters.clusterName) {
+        ) ?: error("Não foi possível resolver tenant_id para o evento slo_reconciled")
+        Clusters.upsert(
+            Clusters.clusterName,
+            Clusters.tenantId,
+            onUpdateExclude = listOf(Clusters.createdAt),
+        ) {
             it[Clusters.clusterName] = clusterNameValue
             it[Clusters.tenantId] = tenantId
             it[Clusters.environment] = environmentValue
             it[Clusters.isActive] = true
+            it[Clusters.createdAt] = now
             it[Clusters.updatedAt] = now
         }
         val clusterIdValue = Clusters
             .select(Clusters.clusterId)
-            .where { Clusters.clusterName eq clusterNameValue }
+            .where { (Clusters.clusterName eq clusterNameValue) and (Clusters.tenantId eq tenantId) }
             .single()[Clusters.clusterId]
 
-        Namespaces.upsert(Namespaces.clusterId, Namespaces.namespaceName) {
+        Namespaces.upsert(
+            Namespaces.clusterId,
+            Namespaces.namespaceName,
+            onUpdateExclude = listOf(Namespaces.createdAt),
+        ) {
             it[Namespaces.clusterId] = clusterIdValue
             it[Namespaces.namespaceName] = namespaceNameValue
+            it[Namespaces.createdAt] = now
             it[Namespaces.updatedAt] = now
         }
 

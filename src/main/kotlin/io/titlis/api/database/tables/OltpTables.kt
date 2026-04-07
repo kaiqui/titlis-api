@@ -23,9 +23,9 @@ object Tenants : Table("titlis_oltp.tenants") {
 
 object Clusters : Table("titlis_oltp.clusters") {
     val clusterId   = long("cluster_id").autoIncrement()
-    val tenantId    = long("tenant_id").references(Tenants.tenantId).nullable()
+    val tenantId    = long("tenant_id").references(Tenants.tenantId)
     val clusterName = varchar("cluster_name", 255)
-    val environment = varchar("environment", 100)
+    val environment = varchar("environment", 50)
     val region      = varchar("region", 100).nullable()
     val provider    = varchar("provider", 100).nullable()
     val k8sVersion  = varchar("k8s_version", 50).nullable()
@@ -53,7 +53,7 @@ object Workloads : Table("titlis_oltp.workloads") {
     val workloadName         = varchar("workload_name", 255)
     val workloadKind         = varchar("workload_kind", 100).default("Deployment")
     val k8sUid               = varchar("k8s_uid", 255).nullable()  // metadata.uid — chave de negócio para lookups por evento
-    val serviceTier          = varchar("service_tier", 20).nullable()
+    val serviceTier          = pgEnum("service_tier", "titlis_oltp.service_tier").nullable()
     val ddGitRepositoryUrl   = varchar("dd_git_repository_url", 500).nullable()
     val backstageComponent   = varchar("backstage_component", 255).nullable()
     val ownerTeam            = varchar("owner_team", 255).nullable()

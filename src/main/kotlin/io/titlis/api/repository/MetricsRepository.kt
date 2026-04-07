@@ -16,7 +16,12 @@ class MetricsRepository {
             .where { Workloads.k8sUid eq event.workloadId }
             .singleOrNull()
             ?.get(Workloads.workloadId)
-            ?: error("Workload não encontrado para k8s_uid=${event.workloadId}")
+
+        if (workloadId == null) {
+            // Workload não existe ainda — ignora a métrica (scorecard virá depois)
+            return@dbQuery
+        }
+
         val tenantId = chooseTenantId(
             trustedTenantId = tenantIdHint,
             derivedTenantId = resolveTenantIdByWorkloadId(workloadId) ?: resolveSingleActiveTenantIdOrNull(),

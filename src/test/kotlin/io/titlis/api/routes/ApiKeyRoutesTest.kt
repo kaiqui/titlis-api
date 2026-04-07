@@ -84,7 +84,7 @@ class ApiKeyRoutesTest {
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        assertTrue(response.bodyAsText().contains("\"apiKeyId\":7"))
+        assertTrue(response.bodyAsText().contains("\"id\":7"))
         coVerify(exactly = 1) { repo.listByTenant(42L) }
     }
 
