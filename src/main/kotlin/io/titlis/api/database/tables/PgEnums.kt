@@ -21,6 +21,8 @@ private class PostgreSqlEnumColumnType(
             type = typeName
             this.value = value
         }
+
+    override fun nonNullValueAsDefaultString(value: String): String = "'$value'"
 }
 
 fun Table.pgEnum(name: String, typeName: String): Column<String> =
