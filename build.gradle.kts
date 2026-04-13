@@ -3,6 +3,7 @@ plugins {
     kotlin("plugin.serialization") version "2.1.0"
     id("io.ktor.plugin") version "3.1.0"
     application
+    jacoco
 }
 
 group = "io.titlis"
@@ -60,6 +61,15 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        xml.required = true
+        html.required = true
+    }
 }
 
 kotlin {
