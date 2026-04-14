@@ -57,40 +57,48 @@ object DatabaseFactory {
             // ALTER COLUMN TYPE on any column referenced by a view. They are recreated immediately after.
             // In environments where the DB user lacks DDL privileges (e.g. production), these operations
             // are skipped with a warning — the application functions normally without the views.
+            //
+            // Each tryExecDdl wraps its work in a PostgreSQL SAVEPOINT so that a DDL failure rolls
+            // back only that statement without aborting the surrounding transaction. Without savepoints,
+            // a permission-denied error leaves the transaction in "aborted" state and every subsequent
+            // statement fails with "current transaction is aborted, commands ignored until end of
+            // transaction block".
             tryExecDdl("DROP VIEW IF EXISTS titlis_oltp.v_workload_dashboard CASCADE")
             tryExecDdl("DROP VIEW IF EXISTS titlis_oltp.v_slo_framework_detection CASCADE")
             tryExecDdl("DROP VIEW IF EXISTS titlis_audit.v_score_evolution CASCADE")
             tryExecDdl("DROP VIEW IF EXISTS titlis_oltp.v_top_failing_rules CASCADE")
             tryExecDdl("DROP VIEW IF EXISTS titlis_audit.v_remediation_effectiveness CASCADE")
 
-            SchemaUtils.createMissingTablesAndColumns(
-                // titlis_oltp
-                Tenants,
-                Clusters,
-                Namespaces,
-                Workloads,
-                ValidationRules,
-                AppScorecards,
-                PillarScores,
-                ValidationResults,
-                AppRemediations,
-                RemediationIssues,
-                SloConfigs,
-                PlatformUsers,
-                TenantAuthIntegrations,
-                UserAuthIdentities,
-                TenantApiKeys,
-                PlatformUserInvites,
-                // titlis_audit
-                AppScorecardHistory,
-                PillarScoreHistory,
-                RemediationHistory,
-                SloComplianceHistory,
-                NotificationLog,
-                // titlis_ts
-                ResourceMetrics,
-                ScorecardScores,
-            )
+            tryExecDdlBlock {
+                SchemaUtils.createMissingTablesAndColumns(
+                    // titlis_oltp
+                    Tenants,
+                    Clusters,
+                    Namespaces,
+                    Workloads,
+                    ValidationRules,
+                    AppScorecards,
+                    PillarScores,
+                    ValidationResults,
+                    AppRemediations,
+                    RemediationIssues,
+                    SloConfigs,
+                    PlatformUsers,
+                    TenantAuthIntegrations,
+                    UserAuthIdentities,
+                    TenantApiKeys,
+                    PlatformUserInvites,
+                    // titlis_audit
+                    AppScorecardHistory,
+                    PillarScoreHistory,
+                    RemediationHistory,
+                    SloComplianceHistory,
+                    NotificationLog,
+                    // titlis_ts
+                    ResourceMetrics,
+                    ScorecardScores,
+                )
+            }
 
             tryExecDdl("""
                 CREATE OR REPLACE VIEW titlis_oltp.v_workload_dashboard AS
@@ -190,10 +198,23 @@ object DatabaseFactory {
 
     private fun Transaction.tryExecDdl(sql: String) {
         try {
+            exec("SAVEPOINT titlis_ddl_sp")
             exec(sql)
+            exec("RELEASE SAVEPOINT titlis_ddl_sp")
         } catch (e: Exception) {
+            try { exec("ROLLBACK TO SAVEPOINT titlis_ddl_sp") } catch (_: Exception) {}
+            log.warn("DDL skipped (insufficient privileges — expected in production): ${e.message}")
+        }
+    }
+
+    private fun Transaction.tryExecDdlBlock(block: () -> Unit) {
+        try {
+            exec("SAVEPOINT titlis_ddl_sp")
+            block()
+            exec("RELEASE SAVEPOINT titlis_ddl_sp")
+        } catch (e: Exception) {
+            try { exec("ROLLBACK TO SAVEPOINT titlis_ddl_sp") } catch (_: Exception) {}
             log.warn("DDL skipped (insufficient privileges — expected in production): ${e.message}")
         }
     }
 }
-
