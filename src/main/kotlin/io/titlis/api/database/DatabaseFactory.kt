@@ -29,10 +29,14 @@ import io.titlis.api.database.tables.Workloads
 import kotlinx.coroutines.Dispatchers
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
+import org.jetbrains.exposed.sql.Transaction
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.slf4j.LoggerFactory
 
 object DatabaseFactory {
+    private val log = LoggerFactory.getLogger(DatabaseFactory::class.java)
+
     fun init(config: DatabaseConfig) {
         val hikariConfig = HikariConfig().apply {
             jdbcUrl = config.url
@@ -48,13 +52,16 @@ object DatabaseFactory {
         }
         val database = Database.connect(HikariDataSource(hikariConfig))
         transaction(database) {
-            // Views must be dropped before createMissingTablesAndColumns because PostgreSQL blocks
+            // In development environments, we can assume the DB user has sufficient privileges to drop and recreate views as needed.
+            // Views are dropped before createMissingTablesAndColumns because PostgreSQL blocks
             // ALTER COLUMN TYPE on any column referenced by a view. They are recreated immediately after.
-            exec("DROP VIEW IF EXISTS titlis_oltp.v_workload_dashboard CASCADE")
-            exec("DROP VIEW IF EXISTS titlis_oltp.v_slo_framework_detection CASCADE")
-            exec("DROP VIEW IF EXISTS titlis_oltp.v_score_evolution CASCADE")
-            exec("DROP VIEW IF EXISTS titlis_oltp.v_top_failing_rules CASCADE")
-            exec("DROP VIEW IF EXISTS titlis_audit.v_remediation_effectiveness CASCADE")
+            // In environments where the DB user lacks DDL privileges (e.g. production), these operations
+            // are skipped with a warning — the application functions normally without the views.
+            tryExecDdl("DROP VIEW IF EXISTS titlis_oltp.v_workload_dashboard CASCADE")
+            tryExecDdl("DROP VIEW IF EXISTS titlis_oltp.v_slo_framework_detection CASCADE")
+            tryExecDdl("DROP VIEW IF EXISTS titlis_audit.v_score_evolution CASCADE")
+            tryExecDdl("DROP VIEW IF EXISTS titlis_oltp.v_top_failing_rules CASCADE")
+            tryExecDdl("DROP VIEW IF EXISTS titlis_audit.v_remediation_effectiveness CASCADE")
 
             SchemaUtils.createMissingTablesAndColumns(
                 // titlis_oltp
@@ -85,7 +92,7 @@ object DatabaseFactory {
                 ScorecardScores,
             )
 
-            exec("""
+            tryExecDdl("""
                 CREATE OR REPLACE VIEW titlis_oltp.v_workload_dashboard AS
                 SELECT w.workload_id,
                     c.cluster_name,
@@ -115,7 +122,7 @@ object DatabaseFactory {
                 WHERE w.is_active = true AND n.is_excluded = false
             """)
 
-            exec("""
+            tryExecDdl("""
                 CREATE OR REPLACE VIEW titlis_oltp.v_slo_framework_detection AS
                 SELECT n.namespace_name AS namespace,
                     sc.slo_config_name AS slo_name,
@@ -133,7 +140,7 @@ object DatabaseFactory {
                 ORDER BY (sc.detection_source::text = 'fallback'::text) DESC, sc.last_sync_at DESC NULLS LAST
             """)
 
-            exec("""
+            tryExecDdl("""
                 CREATE OR REPLACE VIEW titlis_audit.v_score_evolution AS
                 SELECT app_scorecard_history.workload_id,
                     app_scorecard_history.scorecard_version,
@@ -148,7 +155,7 @@ object DatabaseFactory {
                 ORDER BY app_scorecard_history.workload_id, app_scorecard_history.evaluated_at DESC
             """)
 
-            exec("""
+            tryExecDdl("""
                 CREATE OR REPLACE VIEW titlis_audit.v_top_failing_rules AS
                 SELECT vr.value ->> 'rule_ref' AS rule_id,
                     vr.value ->> 'pillar' AS pillar,
@@ -163,7 +170,7 @@ object DatabaseFactory {
                 ORDER BY count(*) DESC
             """)
 
-            exec("""
+            tryExecDdl("""
                 CREATE OR REPLACE VIEW titlis_audit.v_remediation_effectiveness AS
                 SELECT remediation_history.workload_id,
                     count(*) AS total_attempts,
@@ -180,4 +187,13 @@ object DatabaseFactory {
 
     suspend fun <T> dbQuery(block: suspend () -> T): T =
         newSuspendedTransaction(Dispatchers.IO) { block() }
+
+    private fun Transaction.tryExecDdl(sql: String) {
+        try {
+            exec(sql)
+        } catch (e: Exception) {
+            log.warn("DDL skipped (insufficient privileges — expected in production): ${e.message}")
+        }
+    }
 }
+

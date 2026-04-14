@@ -203,6 +203,7 @@ object PlatformUsers : Table("titlis_oltp.platform_users") {
     val lastLoginAt = timestampWithTimeZone("last_login_at").nullable()
     val createdAt = timestampWithTimeZone("created_at")
     val updatedAt = timestampWithTimeZone("updated_at")
+    val deletedAt = timestampWithTimeZone("deleted_at").nullable()
     override val primaryKey = PrimaryKey(platformUserId)
 }
 
@@ -224,6 +225,7 @@ object TenantAuthIntegrations : Table("titlis_oltp.tenant_auth_integrations") {
     val activatedAt = timestampWithTimeZone("activated_at").nullable()
     val createdAt = timestampWithTimeZone("created_at")
     val updatedAt = timestampWithTimeZone("updated_at")
+    val deletedAt = timestampWithTimeZone("deleted_at").nullable()
     override val primaryKey = PrimaryKey(tenantAuthIntegrationId)
 }
 
@@ -238,6 +240,7 @@ object UserAuthIdentities : Table("titlis_oltp.user_auth_identities") {
     val lastAuthenticatedAt = timestampWithTimeZone("last_authenticated_at").nullable()
     val createdAt = timestampWithTimeZone("created_at")
     val updatedAt = timestampWithTimeZone("updated_at")
+    val deletedAt = timestampWithTimeZone("deleted_at").nullable()
     override val primaryKey = PrimaryKey(userAuthIdentityId)
 }
 

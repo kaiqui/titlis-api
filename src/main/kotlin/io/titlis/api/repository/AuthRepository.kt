@@ -50,20 +50,28 @@ class AuthRepository(
     private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun bootstrapStatus(): BootstrapStatusResponse = dbQuery {
-        val bootstrapRequired = PlatformUsers.selectAll().limit(1).singleOrNull() == null
+        val bootstrapRequired = PlatformUsers
+            .selectAll()
+            .where { PlatformUsers.deletedAt.isNull() }
+            .limit(1)
+            .singleOrNull() == null
         val primaryIntegration = TenantAuthIntegrations
             .select(
                 TenantAuthIntegrations.providerType,
                 TenantAuthIntegrations.isEnabled,
             )
-            .where { TenantAuthIntegrations.isPrimary eq true }
+            .where {
+                (TenantAuthIntegrations.isPrimary eq true) and
+                    TenantAuthIntegrations.deletedAt.isNull()
+            }
             .singleOrNull()
 
         val oktaConfigured = TenantAuthIntegrations
             .selectAll()
             .where {
                 (TenantAuthIntegrations.providerType eq "okta") and
-                    (TenantAuthIntegrations.isEnabled eq true)
+                    (TenantAuthIntegrations.isEnabled eq true) and
+                    TenantAuthIntegrations.deletedAt.isNull()
             }
             .limit(1)
             .singleOrNull() != null
@@ -173,7 +181,8 @@ class AuthRepository(
             .andWhere {
                 (Tenants.slug eq tenantSlug) and
                     (PlatformUsers.email eq email) and
-                    (PlatformUsers.isActive eq true)
+                    (PlatformUsers.isActive eq true) and
+                    PlatformUsers.deletedAt.isNull()
             }
             .singleOrNull()
             ?: throw InvalidCredentialsException()
@@ -210,7 +219,8 @@ class AuthRepository(
             .where {
                 (TenantAuthIntegrations.tenantId eq tenantId) and
                     (TenantAuthIntegrations.providerType eq "okta") and
-                    (TenantAuthIntegrations.isEnabled eq true)
+                    (TenantAuthIntegrations.isEnabled eq true) and
+                    TenantAuthIntegrations.deletedAt.isNull()
             }
             .singleOrNull()
             ?: return@dbQuery null
@@ -230,7 +240,9 @@ class AuthRepository(
             )
             .where {
                 (UserAuthIdentities.tenantAuthIntegrationId eq integrationId) and
-                    (UserAuthIdentities.providerSubject eq identity.subject)
+                    (UserAuthIdentities.providerSubject eq identity.subject) and
+                    UserAuthIdentities.deletedAt.isNull() and
+                    PlatformUsers.deletedAt.isNull()
             }
             .singleOrNull()
 
@@ -254,7 +266,8 @@ class AuthRepository(
             .where {
                 (PlatformUsers.tenantId eq tenantId) and
                     (PlatformUsers.email eq email) and
-                    (PlatformUsers.isActive eq true)
+                    (PlatformUsers.isActive eq true) and
+                    PlatformUsers.deletedAt.isNull()
             }
             .singleOrNull()
             ?: return@dbQuery null
@@ -282,7 +295,10 @@ class AuthRepository(
     suspend fun listTenantAuthIntegrations(tenantId: Long): List<TenantAuthIntegrationResponse> = dbQuery {
         TenantAuthIntegrations
             .selectAll()
-            .where { TenantAuthIntegrations.tenantId eq tenantId }
+            .where {
+                (TenantAuthIntegrations.tenantId eq tenantId) and
+                    TenantAuthIntegrations.deletedAt.isNull()
+            }
             .orderBy(TenantAuthIntegrations.isPrimary to org.jetbrains.exposed.sql.SortOrder.DESC)
             .map { it.toTenantAuthIntegrationResponse() }
     }
@@ -319,7 +335,8 @@ class AuthRepository(
             .where {
                 (TenantAuthIntegrations.tenantId eq tenantId) and
                     (TenantAuthIntegrations.providerType eq providerType) and
-                    (TenantAuthIntegrations.integrationKind eq integrationKind)
+                    (TenantAuthIntegrations.integrationKind eq integrationKind) and
+                    TenantAuthIntegrations.deletedAt.isNull()
             }
             .singleOrNull()
         val currentIntegrationId = row?.get(TenantAuthIntegrations.tenantAuthIntegrationId)
@@ -328,7 +345,8 @@ class AuthRepository(
             .select(TenantAuthIntegrations.tenantAuthIntegrationId)
             .where {
                 (TenantAuthIntegrations.tenantId eq tenantId) and
-                    (TenantAuthIntegrations.integrationName eq integrationName)
+                    (TenantAuthIntegrations.integrationName eq integrationName) and
+                    TenantAuthIntegrations.deletedAt.isNull()
             }
             .singleOrNull()
             ?.get(TenantAuthIntegrations.tenantAuthIntegrationId)
@@ -475,7 +493,8 @@ class AuthRepository(
         .selectAll()
         .where {
             (TenantAuthIntegrations.providerType eq "local") and
-                (TenantAuthIntegrations.isEnabled eq true)
+                (TenantAuthIntegrations.isEnabled eq true) and
+                TenantAuthIntegrations.deletedAt.isNull()
         }
         .limit(1)
         .singleOrNull() != null
@@ -486,7 +505,8 @@ class AuthRepository(
             .where {
                 (Tenants.slug eq tenantSlug) and
                     (TenantAuthIntegrations.providerType eq "local") and
-                    (TenantAuthIntegrations.isEnabled eq true)
+                    (TenantAuthIntegrations.isEnabled eq true) and
+                    TenantAuthIntegrations.deletedAt.isNull()
             }
             .singleOrNull() != null
 
@@ -500,7 +520,8 @@ class AuthRepository(
             (TenantAuthIntegrations.tenantId eq Tenants.tenantId) and
                 (TenantAuthIntegrations.providerType eq "okta") and
                 (TenantAuthIntegrations.isPrimary eq true) and
-                (TenantAuthIntegrations.isEnabled eq true)
+                (TenantAuthIntegrations.isEnabled eq true) and
+                TenantAuthIntegrations.deletedAt.isNull()
         })
         .select(
             PlatformUsers.platformUserId,
@@ -523,7 +544,8 @@ class AuthRepository(
         val now = OffsetDateTime.now(ZoneOffset.UTC)
         UserAuthIdentities.update({
             (UserAuthIdentities.providerSubject eq subject) and
-                (UserAuthIdentities.tenantAuthIntegrationId eq integrationId)
+                (UserAuthIdentities.tenantAuthIntegrationId eq integrationId) and
+                UserAuthIdentities.deletedAt.isNull()
         }) {
             it[lastAuthenticatedAt] = now
             it[issuerUrl] = issuer
@@ -538,7 +560,8 @@ class AuthRepository(
         .selectAll()
         .where {
             (TenantAuthIntegrations.tenantAuthIntegrationId eq integrationId) and
-                (TenantAuthIntegrations.tenantId eq tenantId)
+                (TenantAuthIntegrations.tenantId eq tenantId) and
+                TenantAuthIntegrations.deletedAt.isNull()
         }
         .singleOrNull()
         ?.toTenantAuthIntegrationResponse()
@@ -550,7 +573,8 @@ class AuthRepository(
         .selectAll()
         .where {
             (TenantAuthIntegrations.tenantAuthIntegrationId eq integrationId) and
-                (TenantAuthIntegrations.tenantId eq tenantId)
+                (TenantAuthIntegrations.tenantId eq tenantId) and
+                TenantAuthIntegrations.deletedAt.isNull()
         }
         .singleOrNull()
 
