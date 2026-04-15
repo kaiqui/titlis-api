@@ -73,11 +73,11 @@ class RequestAuthenticatorTest {
             header("X-Dev-Auth", "true")
             header("X-Dev-Tenant-Id", "42")
             header("X-Dev-User", "qa@titlis.local")
-            header("X-Dev-Roles", "titlis.engineer")
+            header("X-Dev-Roles", "titlis.viewer")
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        assertEquals("DEV_BYPASS:42:engineer", response.bodyAsText())
+        assertEquals("DEV_BYPASS:42:viewer", response.bodyAsText())
     }
 
     @Test

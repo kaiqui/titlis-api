@@ -39,6 +39,7 @@ data class AppConfig(
     val database: DatabaseConfig,
     val udp: UdpConfig,
     val auth: AuthConfig,
+    val corsAllowedOrigins: List<String>,
 ) {
     companion object {
         fun from(config: ApplicationConfig): AppConfig {
@@ -110,6 +111,12 @@ data class AppConfig(
                         default = "10000",
                     ).toInt(),
                 ),
+                corsAllowedOrigins = propertyOrEnv(
+                    config = config,
+                    path = "titlis.corsAllowedOrigins",
+                    env = "TITLIS_CORS_ALLOWED_ORIGINS",
+                    default = "http://localhost:13000",
+                ).split(",").map(String::trim).filter(String::isNotBlank),
                 auth = AuthConfig(
                     appEnv = propertyOrEnv(
                         config = auth,

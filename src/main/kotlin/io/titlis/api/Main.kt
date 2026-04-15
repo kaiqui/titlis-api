@@ -1,11 +1,13 @@
 package io.titlis.api
 
+import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.ktor.server.plugins.contentnegotiation.*
+import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.response.*
 import io.titlis.api.auth.appAuth
@@ -60,6 +62,26 @@ fun Application.module() {
     val router    = EventRouter(scorecardRepo, remediationRepo, sloRepo, metricsRepo, apiKeyRepo, scope)
     val udpServer = UdpServer(config.udp, router)
     udpServer.start(scope)
+
+    install(CORS) {
+        config.corsAllowedOrigins.forEach { origin ->
+            val uri = io.ktor.http.Url(origin)
+            allowHost(uri.host, schemes = listOf(uri.protocol.name))
+        }
+        allowMethod(HttpMethod.Options)
+        allowMethod(HttpMethod.Get)
+        allowMethod(HttpMethod.Post)
+        allowMethod(HttpMethod.Put)
+        allowMethod(HttpMethod.Delete)
+        allowMethod(HttpMethod.Patch)
+        allowHeader(HttpHeaders.Authorization)
+        allowHeader(HttpHeaders.ContentType)
+        allowHeader("X-Dev-Auth")
+        allowHeader("X-Dev-Tenant-Id")
+        allowHeader("X-Dev-User")
+        allowHeader("X-Dev-Roles")
+        allowCredentials = true
+    }
 
     install(ContentNegotiation) {
         json(Json { ignoreUnknownKeys = true; prettyPrint = false })

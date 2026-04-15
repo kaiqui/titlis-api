@@ -4,8 +4,6 @@ import kotlinx.serialization.Serializable
 
 enum class PlatformRole(val dbValue: String) {
     ADMIN("admin"),
-    ENGINEER("engineer"),
-    PM("pm"),
     VIEWER("viewer");
 
     companion object {

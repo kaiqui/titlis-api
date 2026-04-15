@@ -97,8 +97,6 @@ class RequestAuthenticator(
         val normalized = values.map { it.lowercase() }
         return when {
             normalized.any { it == "titlis.admin" || it == "admin" } -> PlatformRole.ADMIN
-            normalized.any { it == "titlis.engineer" || it == "engineer" } -> PlatformRole.ENGINEER
-            normalized.any { it == "titlis.pm" || it == "pm" } -> PlatformRole.PM
             else -> PlatformRole.VIEWER
         }
     }

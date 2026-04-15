@@ -44,7 +44,7 @@ class SloRoutesTest {
         val response = client.get("/v1/slos") {
             header("X-Dev-Auth", "true")
             header("X-Dev-Tenant-Id", "42")
-            header("X-Dev-Roles", "titlis.engineer")
+            header("X-Dev-Roles", "titlis.viewer")
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
