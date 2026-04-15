@@ -1,11 +1,11 @@
-FROM gradle:8.10.2-jdk21-alpine AS build
+FROM gradle:9.4.1-jdk21-alpine AS build
 
 WORKDIR /app
 
-COPY build.gradle.kts ./
-COPY settings.gradle.kts ./
-COPY src ./src
+COPY build.gradle.kts settings.gradle.kts ./
+RUN gradle --no-daemon dependencies --configuration runtimeClasspath -q
 
+COPY src ./src
 RUN gradle --no-daemon installDist
 
 FROM eclipse-temurin:21-jre-alpine
