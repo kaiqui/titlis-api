@@ -66,7 +66,7 @@ fun Application.module() {
     install(CORS) {
         config.corsAllowedOrigins.forEach { origin ->
             val uri = io.ktor.http.Url(origin)
-            allowHost(uri.host, schemes = listOf(uri.protocol.name))
+            allowHost(uri.hostWithPort, schemes = listOf(uri.protocol.name))
         }
         allowMethod(HttpMethod.Options)
         allowMethod(HttpMethod.Get)
