@@ -1,0 +1,232 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: titlis-api-config
+  namespace: titlis-preprod
+data:
+  PORT: "8080"
+  DB_POOL_MAX: "3"
+  TITLIS_APP_ENV: preprod
+  TITLIS_AUTH_MODE: mixed
+  TITLIS_AUTH_ISSUER: https://trial-8891784.okta.com/oauth2/aus11ip021xOHyY1d698/.well-known/oauth-authorization-server
+  TITLIS_AUTH_AUDIENCE: api://titlis
+  TITLIS_AUTH_ACCESS_TOKEN_TTL_MINUTES: "720"
+  TITLIS_OKTA_ISSUER: https://trial-8891784.okta.com/oauth2/aus11ip021xOHyY1d698/.well-known/oauth-authorization-server
+  TITLIS_OKTA_AUDIENCE: api://titlis
+  TITLIS_DEV_BYPASS_ENABLED: "false"
+  TITLIS_UDP_PORT: "8125"
+  TITLIS_UDP_WORKERS: "1"
+  TITLIS_CORS_ALLOWED_ORIGINS: http://localhost:30080
+  TITLIS_AI_URL: http://titlis-ai:8001
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: titlis-api
+  namespace: titlis-preprod
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: titlis-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        app: titlis-api
+        admission.datadoghq.com/enabled: "true"
+        tags.datadoghq.com/env: preprod
+        tags.datadoghq.com/service: titlis-api
+        tags.datadoghq.com/version: v3.0.0
+      annotations:
+        admission.datadoghq.com/java-lib.version: latest
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: titlis-api
+          image: kailima/titlis-api:preprod-latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: udp-events
+              containerPort: 8125
+              protocol: UDP
+          env:
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: PORT
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: titlis-preprod-secrets
+                  key: DATABASE_URL
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: titlis-preprod-secrets
+                  key: DATABASE_USER
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: titlis-preprod-secrets
+                  key: DATABASE_PASSWORD
+            - name: TITLIS_AUTH_ISSUER
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: TITLIS_AUTH_ISSUER
+            - name: TITLIS_AUTH_AUDIENCE
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: TITLIS_AUTH_AUDIENCE
+            - name: TITLIS_AUTH_ACCESS_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: titlis-preprod-secrets
+                  key: TITLIS_AUTH_ACCESS_TOKEN_SECRET
+            - name: TITLIS_AUTH_ACCESS_TOKEN_TTL_MINUTES
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: TITLIS_AUTH_ACCESS_TOKEN_TTL_MINUTES
+            - name: TITLIS_OKTA_ISSUER
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: TITLIS_OKTA_ISSUER
+            - name: TITLIS_OKTA_AUDIENCE
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: TITLIS_OKTA_AUDIENCE
+            - name: TITLIS_OKTA_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: titlis-preprod-secrets
+                  key: TITLIS_OKTA_CLIENT_ID
+            - name: TITLIS_AUTH_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: TITLIS_AUTH_MODE
+            - name: TITLIS_APP_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: TITLIS_APP_ENV
+            - name: TITLIS_DEV_BYPASS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: TITLIS_DEV_BYPASS_ENABLED
+            - name: TITLIS_UDP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: TITLIS_UDP_PORT
+            - name: TITLIS_UDP_WORKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: TITLIS_UDP_WORKERS
+            - name: TITLIS_CORS_ALLOWED_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: TITLIS_CORS_ALLOWED_ORIGINS
+            - name: DB_POOL_MAX
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: DB_POOL_MAX
+            - name: TITLIS_AI_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: TITLIS_AI_URL
+            - name: TITLIS_AI_INTERNAL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: titlis-preprod-secrets
+                  key: TITLIS_AI_INTERNAL_SECRET
+            - name: DD_AGENT_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: DD_SERVICE
+              value: titlis-api
+            - name: DD_ENV
+              value: preprod
+            - name: DD_VERSION
+              value: v3.0.0
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: titlis-api
+  namespace: titlis-preprod
+spec:
+  selector:
+    app: titlis-api
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+      targetPort: http
+    - name: udp-events
+      port: 8125
+      protocol: UDP
+      targetPort: udp-events
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: titlis-api-nodeport
+  namespace: titlis-preprod
+spec:
+  selector:
+    app: titlis-api
+  type: NodePort
+  ports:
+    - name: http
+      port: 8080
+      nodePort: 30081
+      protocol: TCP
+      targetPort: http
+    - name: udp-events
+      port: 8125
+      nodePort: 30125
+      protocol: UDP
+      targetPort: udp-events
