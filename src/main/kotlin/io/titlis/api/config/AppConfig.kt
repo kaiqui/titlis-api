@@ -35,11 +35,17 @@ data class AuthConfig(
     val devRoles: List<String>,
 )
 
+data class AiServiceConfig(
+    val url: String,
+    val internalSecret: String,
+)
+
 data class AppConfig(
     val database: DatabaseConfig,
     val udp: UdpConfig,
     val auth: AuthConfig,
     val corsAllowedOrigins: List<String>,
+    val aiService: AiServiceConfig,
 ) {
     companion object {
         fun from(config: ApplicationConfig): AppConfig {
@@ -117,6 +123,20 @@ data class AppConfig(
                     env = "TITLIS_CORS_ALLOWED_ORIGINS",
                     default = "http://localhost:13000",
                 ).split(",").map(String::trim).filter(String::isNotBlank),
+                aiService = AiServiceConfig(
+                    url = propertyOrEnv(
+                        config = config,
+                        path = "titlis.aiService.url",
+                        env = "TITLIS_AI_URL",
+                        default = "http://titlis-ai:8001",
+                    ),
+                    internalSecret = propertyOrEnv(
+                        config = config,
+                        path = "titlis.aiService.internalSecret",
+                        env = "TITLIS_AI_INTERNAL_SECRET",
+                        default = "titlis-ai-internal-secret-dev",
+                    ),
+                ),
                 auth = AuthConfig(
                     appEnv = propertyOrEnv(
                         config = auth,

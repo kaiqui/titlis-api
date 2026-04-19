@@ -18,7 +18,9 @@ import io.titlis.api.database.tables.RemediationIssues
 import io.titlis.api.database.tables.ResourceMetrics
 import io.titlis.api.database.tables.ScorecardScores
 import io.titlis.api.database.tables.SloComplianceHistory
+import io.titlis.api.database.tables.SloConfigPendingChanges
 import io.titlis.api.database.tables.SloConfigs
+import io.titlis.api.database.tables.TenantAiConfigs
 import io.titlis.api.database.tables.TenantApiKeys
 import io.titlis.api.database.tables.TenantAuthIntegrations
 import io.titlis.api.database.tables.Tenants
@@ -69,6 +71,35 @@ object DatabaseFactory {
             tryExecDdl("DROP VIEW IF EXISTS titlis_oltp.v_top_failing_rules CASCADE")
             tryExecDdl("DROP VIEW IF EXISTS titlis_audit.v_remediation_effectiveness CASCADE")
 
+            tryExecDdl("CREATE EXTENSION IF NOT EXISTS vector")
+            tryExecDdl("CREATE SCHEMA IF NOT EXISTS titlis_ai")
+            tryExecDdl("""
+                CREATE TABLE IF NOT EXISTS titlis_ai.knowledge_chunks (
+                    chunk_id    UUID         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+                    tenant_id   BIGINT       REFERENCES titlis_oltp.tenants(tenant_id) ON DELETE CASCADE,
+                    source_type TEXT         NOT NULL,
+                    source_id   TEXT         NOT NULL,
+                    chunk_text  TEXT         NOT NULL,
+                    embedding   VECTOR(1536) NOT NULL,
+                    metadata    JSONB,
+                    created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+                )
+            """)
+            tryExecDdl("""
+                CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_tenant
+                    ON titlis_ai.knowledge_chunks (tenant_id)
+            """)
+            tryExecDdl("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_chunks_global_src
+                    ON titlis_ai.knowledge_chunks (source_type, source_id)
+                    WHERE tenant_id IS NULL
+            """)
+            tryExecDdl("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_chunks_tenant_src
+                    ON titlis_ai.knowledge_chunks (tenant_id, source_type, source_id)
+                    WHERE tenant_id IS NOT NULL
+            """)
+
             tryExecDdlBlock {
                 SchemaUtils.createMissingTablesAndColumns(
                     // titlis_oltp
@@ -83,6 +114,8 @@ object DatabaseFactory {
                     AppRemediations,
                     RemediationIssues,
                     SloConfigs,
+                    SloConfigPendingChanges,
+                    TenantAiConfigs,
                     PlatformUsers,
                     TenantAuthIntegrations,
                     UserAuthIdentities,

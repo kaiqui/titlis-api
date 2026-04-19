@@ -67,6 +67,8 @@ src/main/kotlin/io/titlis/api/
 │   ├── RemediationRoutes.kt   # /v1/workloads/:id/remediation
 │   ├── SloRoutes.kt           # /v1/slos, /v1/namespaces/:ns/slos/:name
 │   ├── SettingsAuthRoutes.kt  # /v1/settings/auth/providers
+│   ├── RagRoutes.kt           # /v1/internal/rag/* (Phase 2 — knowledge base pgvector)
+│   ├── InternalAiRoutes.kt    # /v1/internal/ai/* (Phase 3 — contexto vivo para titlis-ai)
 │   └── JsonResponses.kt       # Helpers de serialização JSON
 └── udp/
     ├── UdpServer.kt           # Socket UDP porta 8125, worker pool de coroutines
@@ -95,9 +97,53 @@ src/main/kotlin/io/titlis/api/
 
 | Schema | Tabelas principais | Padrão de escrita |
 |---|---|---|
-| `titlis_oltp` | tenants, workloads, app_scorecards, validation_rules, app_remediations, slo_configs, platform_users, tenant_auth_integrations, platform_user_invites | UPSERT / UPDATE in-place |
-| `titlis_audit` | app_scorecard_history, remediation_history, slo_compliance_history, notification_log | INSERT append-only |
+| `titlis_oltp` | tenants, workloads, app_scorecards, validation_rules, app_remediations, slo_configs, platform_users, tenant_auth_integrations, platform_user_invites, **tenant_ai_config**, **ai_knowledge_chunks**, **slo_config_pending_changes** | UPSERT / UPDATE in-place |
+| `titlis_audit` | app_scorecard_history, remediation_history, slo_compliance_history, notification_log, **ai_interactions**, **ai_feedback** | INSERT append-only |
 | `titlis_ts` | resource_metrics, scorecard_scores | INSERT append-only |
+
+### Novas tabelas (AI + SLO)
+
+**`titlis_oltp.tenant_ai_config`** — configuração de provider AI por tenant:
+```sql
+tenant_id              BIGINT PK  → tenants
+provider               TEXT       -- openai | anthropic | google | ...
+model                  TEXT       -- gpt-4o | claude-3-5-sonnet | ...
+api_key_enc            BYTEA      -- criptografado
+github_token_enc       BYTEA      -- token GitHub para abrir PRs
+github_base_branch     TEXT       -- padrão: main
+monthly_token_budget   INT        -- NULL = ilimitado
+tokens_used_month      INT
+is_active              BOOLEAN
+created_at, updated_at
+```
+
+**`titlis_oltp.ai_knowledge_chunks`** — base RAG com pgvector:
+```sql
+id           UUID         PRIMARY KEY
+tenant_id    BIGINT       -- NULL = conhecimento global
+source_type  TEXT         -- rule_doc | k8s_best_practice | past_remediation
+source_id    TEXT         -- rule_id ou pr_url
+chunk_text   TEXT
+embedding    VECTOR(1536)
+metadata     JSONB
+created_at   TIMESTAMP
+```
+
+**`titlis_oltp.slo_config_pending_changes`** — fila de mudanças de SLO propostas pelo titlis-ai:
+```sql
+id              UUID          PRIMARY KEY
+tenant_id       BIGINT        → tenants
+slo_config_name TEXT          -- nome do SLOConfig CRD
+namespace       TEXT
+field           TEXT          -- "target" | "warning" | "timeframe"
+old_value       TEXT
+new_value       TEXT
+requested_by    TEXT          -- "titlis-ai" | "user:{user_id}"
+status          TEXT          -- pending | applied | failed | cancelled
+created_at      TIMESTAMPTZ
+applied_at      TIMESTAMPTZ
+error           TEXT          -- preenchido se status=failed
+```
 
 ### Convenções Exposed
 
@@ -170,6 +216,35 @@ DELETE /v1/settings/api-keys/:id             → 204 / 404
 GET  /v1/settings/api-keys/connection-status → { connected, lastEventAt, activeKeyCount }
   # connected=true quando ao menos uma chave ativa foi usada pelo operator (lastUsedAt != null)
 ```
+
+### Internos (titlis-ai → titlis-api, via X-Internal-Secret)
+
+**RAG (Phase 2):**
+```
+POST /v1/internal/rag/chunks                    → armazena chunk + embedding
+POST /v1/internal/rag/search                    → busca por similaridade coseno (top-K)
+```
+
+**Contexto vivo para o agente (Phase 3):**
+```
+GET  /v1/internal/ai/scorecards/{uid}           → scorecard por k8s_uid
+GET  /v1/internal/ai/scorecards/by-name         → scorecard por name+namespace
+GET  /v1/internal/ai/dashboard                  → lista de workloads com scores
+GET  /v1/internal/ai/scorecards/similar-resolved → workloads que resolveram uma regra
+GET  /v1/internal/ai/slos                       → SLOs do tenant
+GET  /v1/internal/ai/remediations/{uid}/history → histórico de remediações do workload
+POST /v1/internal/ai/slo-configs/{id}/propose-change → propõe mudança de threshold
+```
+
+**Operator (polling de mudanças de SLO):**
+```
+GET  /v1/operator/pending-slo-changes           → mudanças status=pending do tenant (API key auth)
+POST /v1/operator/pending-slo-changes/{id}/applied → marca como aplicada
+POST /v1/operator/pending-slo-changes/{id}/failed  → registra falha
+```
+
+Todos os endpoints `/v1/internal/*` são autenticados por `X-Internal-Secret` (não por JWT).
+Os endpoints `/v1/operator/*` são autenticados por API key do operator.
 
 ### Erros HTTP
 - `400` — payload inválido (body malformado, campo faltando)
@@ -379,7 +454,30 @@ src/test/kotlin/io/titlis/api/
 
 ---
 
-## 12. O Que Não Fazer
+## 12. Integração com titlis-ai
+
+### InternalAiRoutes.kt
+
+7 endpoints sob `/v1/internal/ai/`, todos autenticados por `X-Internal-Secret`.
+Registrado em `Main.kt` como:
+```kotlin
+internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, config.aiService.internalSecret)
+```
+
+Principais métodos adicionados nos repositories:
+- `ScorecardRepository.getByName(name, namespace, tenantId)` — busca por nome+namespace
+- `ScorecardRepository.getSimilarResolved(ruleId, tenantId, limit)` — workloads que passaram na regra
+- `RemediationRepository.getHistory(k8sUid, tenantId)` — até 20 registros por workload
+
+### RagRoutes.kt
+
+Endpoints de pgvector para a base RAG do titlis-ai:
+- `POST /v1/internal/rag/chunks` — persiste chunk com embedding VECTOR(1536)
+- `POST /v1/internal/rag/search` — busca por similaridade coseno com filtro de `source_type` e `tenant_id`
+
+---
+
+## 13. O Que Não Fazer
 
 - **Nunca** use `transaction {}` no lugar de `dbQuery {}` — o `dbQuery` gerencia o dispatcher correto
 - **Nunca** omita o filtro `tenantId` em queries — viola isolamento multi-tenant

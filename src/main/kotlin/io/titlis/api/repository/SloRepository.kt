@@ -4,6 +4,7 @@ import io.titlis.api.database.DatabaseFactory.dbQuery
 import io.titlis.api.database.tables.Clusters
 import io.titlis.api.database.tables.Namespaces
 import io.titlis.api.database.tables.SloComplianceHistory
+import io.titlis.api.database.tables.SloConfigPendingChanges
 import io.titlis.api.database.tables.SloConfigs
 import io.titlis.api.domain.SloReconciledEvent
 import org.jetbrains.exposed.sql.SortOrder
@@ -13,9 +14,11 @@ import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.select
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.update
 import org.jetbrains.exposed.sql.upsert
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import java.util.UUID
 
 class SloRepository {
     suspend fun upsertSloConfig(event: SloReconciledEvent, tenantIdHint: Long? = null) = dbQuery {
@@ -134,6 +137,101 @@ class SloRepository {
                 "last_sync_at" to row[SloConfigs.lastSyncAt]?.toString(),
             )
         }
+    }
+
+    suspend fun listPendingChanges(tenantId: Long): List<Map<String, Any?>> = dbQuery {
+        SloConfigPendingChanges
+            .selectAll()
+            .where {
+                (SloConfigPendingChanges.tenantId eq tenantId) and
+                    (SloConfigPendingChanges.status eq "pending")
+            }
+            .orderBy(SloConfigPendingChanges.createdAt, SortOrder.ASC)
+            .map { row ->
+                mapOf(
+                    "id"              to row[SloConfigPendingChanges.id].toString(),
+                    "slo_config_name" to row[SloConfigPendingChanges.sloConfigName],
+                    "namespace"       to row[SloConfigPendingChanges.namespace],
+                    "field"           to row[SloConfigPendingChanges.field],
+                    "old_value"       to row[SloConfigPendingChanges.oldValue],
+                    "new_value"       to row[SloConfigPendingChanges.newValue],
+                    "requested_by"    to row[SloConfigPendingChanges.requestedBy],
+                    "status"          to row[SloConfigPendingChanges.status],
+                    "created_at"      to row[SloConfigPendingChanges.createdAt].toString(),
+                )
+            }
+    }
+
+    suspend fun markChangeApplied(id: String, tenantId: Long): Boolean = dbQuery {
+        val changeId = runCatching { UUID.fromString(id) }.getOrNull() ?: return@dbQuery false
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+        SloConfigPendingChanges.update({
+            (SloConfigPendingChanges.id eq changeId) and
+                (SloConfigPendingChanges.tenantId eq tenantId) and
+                (SloConfigPendingChanges.status eq "pending")
+        }) {
+            it[status] = "applied"
+            it[appliedAt] = now
+        } > 0
+    }
+
+    suspend fun markChangeFailed(id: String, errorMsg: String, tenantId: Long): Boolean = dbQuery {
+        val changeId = runCatching { UUID.fromString(id) }.getOrNull() ?: return@dbQuery false
+        SloConfigPendingChanges.update({
+            (SloConfigPendingChanges.id eq changeId) and
+                (SloConfigPendingChanges.tenantId eq tenantId) and
+                (SloConfigPendingChanges.status eq "pending")
+        }) {
+            it[status] = "failed"
+            it[error] = errorMsg
+        } > 0
+    }
+
+    suspend fun proposeChange(
+        sloConfigId: Long,
+        tenantId: Long,
+        field: String,
+        oldValue: String,
+        newValue: String,
+        requestedBy: String,
+    ): Map<String, Any?>? = dbQuery {
+        val sloConfig = (SloConfigs innerJoin Namespaces)
+            .select(SloConfigs.sloConfigName, Namespaces.namespaceName)
+            .where {
+                (SloConfigs.sloConfigId eq sloConfigId) and
+                    (SloConfigs.tenantId eq tenantId)
+            }
+            .singleOrNull() ?: return@dbQuery null
+
+        val configName = sloConfig[SloConfigs.sloConfigName]
+        val namespaceName = sloConfig[Namespaces.namespaceName]
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+        val newId = UUID.randomUUID()
+
+        SloConfigPendingChanges.insert {
+            it[SloConfigPendingChanges.id] = newId
+            it[SloConfigPendingChanges.tenantId] = tenantId
+            it[SloConfigPendingChanges.sloConfigName] = configName
+            it[SloConfigPendingChanges.namespace] = namespaceName
+            it[SloConfigPendingChanges.field] = field
+            it[SloConfigPendingChanges.oldValue] = oldValue
+            it[SloConfigPendingChanges.newValue] = newValue
+            it[SloConfigPendingChanges.requestedBy] = requestedBy
+            it[SloConfigPendingChanges.status] = "pending"
+            it[SloConfigPendingChanges.createdAt] = now
+        }
+
+        mapOf(
+            "id"              to newId.toString(),
+            "slo_config_name" to configName,
+            "namespace"       to namespaceName,
+            "field"           to field,
+            "old_value"       to oldValue,
+            "new_value"       to newValue,
+            "requested_by"    to requestedBy,
+            "status"          to "pending",
+            "created_at"      to now.toString(),
+        )
     }
 
     private fun ensureNamespace(

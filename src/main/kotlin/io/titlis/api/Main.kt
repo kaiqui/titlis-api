@@ -16,7 +16,9 @@ import io.titlis.api.auth.OktaTokenVerifier
 import io.titlis.api.auth.oktaJwtAuth
 import io.titlis.api.config.AppConfig
 import io.titlis.api.database.DatabaseFactory
+import io.titlis.api.repository.AiConfigRepository
 import io.titlis.api.repository.ApiKeyRepository
+import io.titlis.api.repository.KnowledgeRepository
 import io.titlis.api.repository.AuthRepository
 import io.titlis.api.repository.MetricsRepository
 import io.titlis.api.repository.RemediationRepository
@@ -24,12 +26,17 @@ import io.titlis.api.repository.ScorecardRepository
 import io.titlis.api.repository.SloRepository
 import io.titlis.api.auth.PasswordHasher
 import io.titlis.api.auth.RequestAuthenticator
+import io.titlis.api.routes.aiConfigRoutes
+import io.titlis.api.routes.aiRoutes
+import io.titlis.api.routes.internalAiRoutes
+import io.titlis.api.routes.ragRoutes
 import io.titlis.api.routes.apiKeyRoutes
 import io.titlis.api.routes.authRoutes
 import io.titlis.api.routes.healthRoutes
 import io.titlis.api.routes.remediationRoutes
 import io.titlis.api.routes.scorecardRoutes
 import io.titlis.api.routes.settingsAuthRoutes
+import io.titlis.api.routes.operatorRoutes
 import io.titlis.api.routes.sloRoutes
 import io.titlis.api.udp.EventRouter
 import io.titlis.api.udp.UdpServer
@@ -52,6 +59,8 @@ fun Application.module() {
     val sloRepo         = SloRepository()
     val metricsRepo     = MetricsRepository()
     val apiKeyRepo      = ApiKeyRepository()
+    val aiConfigRepo    = AiConfigRepository()
+    val knowledgeRepo   = KnowledgeRepository()
     val passwordHasher  = PasswordHasher()
     val authRepo        = AuthRepository(passwordHasher)
     val tokenService    = LocalTokenService(config.auth)
@@ -108,4 +117,9 @@ fun Application.module() {
     scorecardRoutes(scorecardRepo, requestAuthenticator)
     remediationRoutes(remediationRepo, requestAuthenticator)
     sloRoutes(sloRepo, requestAuthenticator)
+    operatorRoutes(sloRepo, apiKeyRepo, requestAuthenticator)
+    aiConfigRoutes(aiConfigRepo, requestAuthenticator)
+    aiRoutes(scorecardRepo, aiConfigRepo, config, requestAuthenticator)
+    ragRoutes(knowledgeRepo, config.aiService.internalSecret)
+    internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, config.aiService.internalSecret)
 }

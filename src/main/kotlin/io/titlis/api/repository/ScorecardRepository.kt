@@ -289,6 +289,30 @@ class ScorecardRepository {
                 }
         } ?: emptyList()
 
+        val activeRemediation = AppRemediations
+            .select(
+                AppRemediations.appRemediationStatus,
+                AppRemediations.githubPrUrl,
+                AppRemediations.githubPrNumber,
+                AppRemediations.pendingRuleIds,
+            )
+            .where { AppRemediations.workloadId eq workloadId }
+            .singleOrNull()
+
+        val pendingRuleIds: Set<String> = run {
+            val status = activeRemediation?.get(AppRemediations.appRemediationStatus) ?: ""
+            if (status !in setOf("PENDING", "IN_PROGRESS")) return@run emptySet()
+            activeRemediation?.get(AppRemediations.pendingRuleIds)
+                ?.let { raw ->
+                    runCatching {
+                        kotlinx.serialization.json.Json.decodeFromString<List<String>>(raw)
+                    }.getOrElse { emptyList() }.toSet()
+                } ?: emptySet()
+        }
+        val remediationPrUrl = activeRemediation?.get(AppRemediations.githubPrUrl)
+        val remediationPrNumber = activeRemediation?.get(AppRemediations.githubPrNumber)
+        val remediationStatus = activeRemediation?.get(AppRemediations.appRemediationStatus)
+
         val validationResults = appScorecardId?.let { scorecardId ->
             (ValidationResults innerJoin ValidationRules)
                 .select(
@@ -309,8 +333,10 @@ class ScorecardRepository {
                 .orderBy(ValidationResults.rulePassed, SortOrder.ASC)
                 .orderBy(ValidationRules.ruleSeverity, SortOrder.DESC)
                 .map { row ->
+                    val ruleId = row[ValidationRules.ruleId]
+                    val isPendingRemediation = ruleId in pendingRuleIds
                     mapOf(
-                        "rule_id" to row[ValidationRules.ruleId],
+                        "rule_id" to ruleId,
                         "rule_name" to row[ValidationRules.ruleName],
                         "pillar" to row[ValidationRules.pillar],
                         "severity" to row[ValidationRules.ruleSeverity],
@@ -322,6 +348,8 @@ class ScorecardRepository {
                         "is_remediable" to row[ValidationRules.isRemediable],
                         "remediation_category" to row[ValidationRules.remediationCategory],
                         "evaluated_at" to row[ValidationResults.evaluatedAt].toString(),
+                        "remediation_pending" to isPendingRemediation,
+                        "remediation_pr_url" to if (isPendingRemediation) remediationPrUrl else null,
                     )
                 }
         } ?: emptyList()
@@ -345,13 +373,24 @@ class ScorecardRepository {
             "evaluated_at" to scorecardRow[AppScorecards.evaluatedAt]?.toString(),
             "pillar_scores" to pillarScores,
             "validation_results" to validationResults,
+            "active_remediation" to remediationStatus?.let {
+                mapOf(
+                    "status" to remediationStatus,
+                    "pr_url" to remediationPrUrl,
+                    "pr_number" to remediationPrNumber,
+                    "pending_rule_ids" to pendingRuleIds.toList(),
+                )
+            },
         )
     }
 
-    private fun resolveWorkloadId(k8sUid: String): Long =
+    private fun resolveWorkloadId(k8sUid: String, namespaceId: Long? = null): Long =
         Workloads
             .select(Workloads.workloadId)
-            .where { Workloads.k8sUid eq k8sUid }
+            .where {
+                val base = Workloads.k8sUid eq k8sUid
+                if (namespaceId != null) base and (Workloads.namespaceId eq namespaceId) else base
+            }
             .singleOrNull()
             ?.get(Workloads.workloadId)
             ?: error("Workload não encontrado para k8s_uid=$k8sUid")
@@ -387,7 +426,7 @@ class ScorecardRepository {
             it[Workloads.updatedAt] = now
         }
 
-        return resolveWorkloadId(event.workloadId)
+        return resolveWorkloadId(event.workloadId, namespaceId)
     }
 
     private fun ensureCluster(
@@ -517,6 +556,144 @@ class ScorecardRepository {
             .where { ValidationRules.ruleId eq ruleIdValue }
             .single()[ValidationRules.validationRuleId]
 
+    suspend fun getByName(workloadName: String, namespace: String, tenantId: Long): Map<String, Any?>? = dbQuery {
+        val workloadId = (Workloads innerJoin Namespaces innerJoin Clusters)
+            .select(Workloads.workloadId)
+            .where {
+                (Workloads.workloadName eq workloadName) and
+                    (Namespaces.namespaceName eq namespace) and
+                    (Clusters.tenantId eq tenantId)
+            }
+            .singleOrNull()
+            ?.get(Workloads.workloadId)
+            ?: return@dbQuery null
+
+        val scorecardRow = (Workloads innerJoin Namespaces innerJoin Clusters)
+            .leftJoin(AppScorecards, { Workloads.workloadId }, { AppScorecards.workloadId })
+            .select(
+                Workloads.k8sUid,
+                Workloads.workloadName,
+                Workloads.workloadKind,
+                Namespaces.namespaceName,
+                Clusters.clusterName,
+                Clusters.environment,
+                AppScorecards.appScorecardId,
+                AppScorecards.overallScore,
+                AppScorecards.complianceStatus,
+                AppScorecards.version,
+                AppScorecards.totalRules,
+                AppScorecards.passedRules,
+                AppScorecards.failedRules,
+                AppScorecards.criticalFailures,
+                AppScorecards.errorCount,
+                AppScorecards.warningCount,
+                AppScorecards.evaluatedAt,
+            )
+            .where { Workloads.workloadId eq workloadId }
+            .singleOrNull()
+            ?: return@dbQuery null
+
+        val appScorecardId = scorecardRow[AppScorecards.appScorecardId]
+        val pillarScores = appScorecardId?.let { scorecardId ->
+            PillarScores
+                .select(
+                    PillarScores.pillar,
+                    PillarScores.pillarScore,
+                    PillarScores.passedChecks,
+                    PillarScores.failedChecks,
+                    PillarScores.weightedScore,
+                )
+                .where { PillarScores.appScorecardId eq scorecardId }
+                .map { row ->
+                    mapOf(
+                        "pillar" to row[PillarScores.pillar],
+                        "score" to row[PillarScores.pillarScore],
+                        "passed_checks" to row[PillarScores.passedChecks],
+                        "failed_checks" to row[PillarScores.failedChecks],
+                        "weighted_score" to row[PillarScores.weightedScore],
+                    )
+                }
+        } ?: emptyList()
+
+        val validationResults = appScorecardId?.let { scorecardId ->
+            (ValidationResults innerJoin ValidationRules)
+                .select(
+                    ValidationRules.ruleId,
+                    ValidationRules.ruleName,
+                    ValidationRules.pillar,
+                    ValidationRules.ruleSeverity,
+                    ValidationRules.isRemediable,
+                    ValidationResults.rulePassed,
+                    ValidationResults.resultMessage,
+                    ValidationResults.actualValue,
+                )
+                .where { ValidationResults.appScorecardId eq scorecardId }
+                .orderBy(ValidationResults.rulePassed, SortOrder.ASC)
+                .map { row ->
+                    mapOf(
+                        "rule_id" to row[ValidationRules.ruleId],
+                        "rule_name" to row[ValidationRules.ruleName],
+                        "pillar" to row[ValidationRules.pillar],
+                        "severity" to row[ValidationRules.ruleSeverity],
+                        "passed" to row[ValidationResults.rulePassed],
+                        "message" to row[ValidationResults.resultMessage],
+                        "actual_value" to row[ValidationResults.actualValue],
+                        "is_remediable" to row[ValidationRules.isRemediable],
+                    )
+                }
+        } ?: emptyList()
+
+        mapOf(
+            "workload_id" to scorecardRow[Workloads.k8sUid],
+            "workload" to scorecardRow[Workloads.workloadName],
+            "workload_kind" to scorecardRow[Workloads.workloadKind],
+            "namespace" to scorecardRow[Namespaces.namespaceName],
+            "cluster" to scorecardRow[Clusters.clusterName],
+            "environment" to scorecardRow[Clusters.environment],
+            "overall_score" to scorecardRow[AppScorecards.overallScore],
+            "compliance_status" to scorecardRow[AppScorecards.complianceStatus],
+            "version" to scorecardRow[AppScorecards.version],
+            "total_rules" to scorecardRow[AppScorecards.totalRules],
+            "passed_rules" to scorecardRow[AppScorecards.passedRules],
+            "failed_rules" to scorecardRow[AppScorecards.failedRules],
+            "evaluated_at" to scorecardRow[AppScorecards.evaluatedAt]?.toString(),
+            "pillar_scores" to pillarScores,
+            "validation_results" to validationResults,
+        )
+    }
+
+    suspend fun getSimilarResolved(ruleId: String, tenantId: Long, limit: Int = 5): List<Map<String, Any?>> = dbQuery {
+        (ValidationResults innerJoin ValidationRules innerJoin AppScorecards innerJoin Workloads innerJoin Namespaces innerJoin Clusters)
+            .select(
+                Workloads.k8sUid,
+                Workloads.workloadName,
+                Namespaces.namespaceName,
+                Clusters.clusterName,
+                ValidationRules.ruleId,
+                ValidationResults.rulePassed,
+                ValidationResults.actualValue,
+                ValidationResults.evaluatedAt,
+            )
+            .where {
+                (ValidationRules.ruleId eq ruleId) and
+                    (ValidationResults.rulePassed eq true) and
+                    (Clusters.tenantId eq tenantId)
+            }
+            .orderBy(ValidationResults.evaluatedAt, SortOrder.DESC)
+            .limit(limit)
+            .map { row ->
+                mapOf(
+                    "workload_id" to row[Workloads.k8sUid],
+                    "workload" to row[Workloads.workloadName],
+                    "namespace" to row[Namespaces.namespaceName],
+                    "cluster" to row[Clusters.clusterName],
+                    "rule_id" to row[ValidationRules.ruleId],
+                    "actual_value" to row[ValidationResults.actualValue],
+                    "evaluated_at" to row[ValidationResults.evaluatedAt].toString(),
+                )
+            }
+    }
+
     suspend fun getDashboard(tenantId: Long, clusterName: String? = null): List<Map<String, Any?>> = dbQuery {
         val query = (Workloads innerJoin Namespaces innerJoin Clusters)
             .leftJoin(AppScorecards, { Workloads.workloadId }, { AppScorecards.workloadId })
@@ -533,6 +710,7 @@ class ScorecardRepository {
                 AppScorecards.evaluatedAt,
                 AppRemediations.appRemediationStatus,
                 AppRemediations.githubPrUrl, AppRemediations.githubPrNumber,
+                AppRemediations.pendingRuleIds,
             )
             .where {
                 (Workloads.isActive eq true) and
@@ -553,8 +731,14 @@ class ScorecardRepository {
                 "workload"           to row[Workloads.workloadName],
                 "overall_score"      to row[AppScorecards.overallScore],
                 "compliance_status"  to row[AppScorecards.complianceStatus],
-                "remediation_status" to row[AppRemediations.appRemediationStatus],
-                "github_pr_url"      to row[AppRemediations.githubPrUrl],
+                "remediation_status"  to row[AppRemediations.appRemediationStatus],
+                "github_pr_url"       to row[AppRemediations.githubPrUrl],
+                "pending_rule_ids"    to row[AppRemediations.pendingRuleIds]
+                    ?.let { raw ->
+                        runCatching {
+                            kotlinx.serialization.json.Json.decodeFromString<List<String>>(raw)
+                        }.getOrElse { emptyList() }
+                    },
             )
         }
     }

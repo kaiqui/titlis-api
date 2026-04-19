@@ -141,6 +141,7 @@ object AppRemediations : Table("titlis_oltp.app_remediations") {
     val githubPrTitle        = varchar("github_pr_title", 500).nullable()
     val githubBranch         = varchar("github_branch", 255).nullable()
     val repositoryUrl        = varchar("repository_url", 500).nullable()
+    val pendingRuleIds       = text("pending_rule_ids").nullable()
     val errorMessage         = text("error_message").nullable()
     val triggeredAt          = timestampWithTimeZone("triggered_at")
     val resolvedAt           = timestampWithTimeZone("resolved_at").nullable()
@@ -256,6 +257,37 @@ object TenantApiKeys : Table("titlis_oltp.tenant_api_keys") {
     val createdAt         = timestampWithTimeZone("created_at")
     val revokedAt         = timestampWithTimeZone("revoked_at").nullable()
     override val primaryKey = PrimaryKey(apiKeyId)
+}
+
+object TenantAiConfigs : Table("titlis_oltp.tenant_ai_configs") {
+    val tenantId             = long("tenant_id").references(Tenants.tenantId)
+    val provider             = text("provider")
+    val model                = text("model")
+    val apiKeyEnc            = text("api_key_enc")
+    val githubTokenEnc       = text("github_token_enc").nullable()
+    val githubBaseBranch     = text("github_base_branch").default("main")
+    val monthlyTokenBudget   = integer("monthly_token_budget").nullable()
+    val tokensUsedMonth      = integer("tokens_used_month").default(0)
+    val isActive             = bool("is_active").default(true)
+    val createdAt            = timestampWithTimeZone("created_at")
+    val updatedAt            = timestampWithTimeZone("updated_at")
+    override val primaryKey = PrimaryKey(tenantId)
+}
+
+object SloConfigPendingChanges : Table("titlis_oltp.slo_config_pending_changes") {
+    val id            = uuid("id").clientDefault { java.util.UUID.randomUUID() }
+    val tenantId      = long("tenant_id").references(Tenants.tenantId)
+    val sloConfigName = text("slo_config_name")
+    val namespace     = text("namespace")
+    val field         = text("field")
+    val oldValue      = text("old_value")
+    val newValue      = text("new_value")
+    val requestedBy   = text("requested_by")
+    val status        = text("status").default("pending")
+    val createdAt     = timestampWithTimeZone("created_at")
+    val appliedAt     = timestampWithTimeZone("applied_at").nullable()
+    val error         = text("error").nullable()
+    override val primaryKey = PrimaryKey(id)
 }
 
 object PlatformUserInvites : Table("titlis_oltp.platform_user_invites") {

@@ -24,7 +24,7 @@ class UdpServer(
                 logger.info("UDP worker $workerId started")
                 for (payload in queue) {
                     runCatching { router.route(payload) }
-                        .onFailure { logger.warn("UDP route error: ${it.message}") }
+                        .onFailure { logger.error("UDP route error: ${it.message}", it) }
                 }
             }
         }

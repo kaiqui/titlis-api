@@ -5,6 +5,9 @@ import io.titlis.api.database.tables.AppRemediations
 import io.titlis.api.database.tables.RemediationHistory
 import io.titlis.api.database.tables.Workloads
 import io.titlis.api.domain.RemediationEvent
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.add
+import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.select
@@ -86,6 +89,75 @@ class RemediationRepository {
             it[AppRemediations.createdAt]     = now
             it[AppRemediations.updatedAt]     = now
         }
+    }
+
+    suspend fun notifyRemediationStarted(
+        k8sUid: String,
+        tenantId: Long,
+        prUrl: String?,
+        prNumber: Int?,
+        githubBranch: String?,
+        repositoryUrl: String?,
+        findingIds: List<String>,
+    ) = dbQuery {
+        val workloadId = resolveWorkloadId(k8sUid)
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+        val pendingJson = buildJsonArray { findingIds.forEach { add(it) } }.toString()
+        AppRemediations.upsert(
+            AppRemediations.workloadId,
+            onUpdateExclude = listOf(AppRemediations.createdAt),
+        ) {
+            it[AppRemediations.workloadId]          = workloadId
+            it[AppRemediations.tenantId]            = tenantId
+            it[AppRemediations.version]             = 1
+            it[AppRemediations.appRemediationStatus] = "IN_PROGRESS"
+            it[AppRemediations.githubPrNumber]      = prNumber
+            it[AppRemediations.githubPrUrl]         = prUrl?.take(500)
+            it[AppRemediations.githubBranch]        = githubBranch?.take(255)
+            it[AppRemediations.repositoryUrl]       = repositoryUrl?.take(500)
+            it[AppRemediations.pendingRuleIds]      = pendingJson
+            it[AppRemediations.triggeredAt]         = now
+            it[AppRemediations.createdAt]           = now
+            it[AppRemediations.updatedAt]           = now
+        }
+    }
+
+    suspend fun getHistory(k8sUid: String, tenantId: Long): List<Map<String, Any?>> = dbQuery {
+        val workloadId = tenantScopedWorkloadRow(k8sUid, tenantId)
+            ?.get(Workloads.workloadId)
+            ?: return@dbQuery emptyList()
+
+        RemediationHistory
+            .select(
+                RemediationHistory.appRemediationStatus,
+                RemediationHistory.previousAppRemediationStatus,
+                RemediationHistory.remediationVersion,
+                RemediationHistory.githubPrNumber,
+                RemediationHistory.githubPrUrl,
+                RemediationHistory.githubBranch,
+                RemediationHistory.repositoryUrl,
+                RemediationHistory.triggeredAt,
+                RemediationHistory.resolvedAt,
+            )
+            .where {
+                (RemediationHistory.workloadId eq workloadId) and
+                    (RemediationHistory.tenantId eq tenantId)
+            }
+            .orderBy(RemediationHistory.triggeredAt, SortOrder.DESC)
+            .limit(20)
+            .map { row ->
+                mapOf(
+                    "status" to row[RemediationHistory.appRemediationStatus],
+                    "previous_status" to row[RemediationHistory.previousAppRemediationStatus],
+                    "version" to row[RemediationHistory.remediationVersion],
+                    "github_pr_number" to row[RemediationHistory.githubPrNumber],
+                    "github_pr_url" to row[RemediationHistory.githubPrUrl],
+                    "github_branch" to row[RemediationHistory.githubBranch],
+                    "repository_url" to row[RemediationHistory.repositoryUrl],
+                    "triggered_at" to row[RemediationHistory.triggeredAt].toString(),
+                    "resolved_at" to row[RemediationHistory.resolvedAt]?.toString(),
+                )
+            }
     }
 
     suspend fun getByWorkload(k8sUid: String, tenantId: Long): Map<String, Any?>? = dbQuery {
