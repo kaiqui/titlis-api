@@ -44,12 +44,12 @@ spec:
         tags.datadoghq.com/service: titlis-api
         tags.datadoghq.com/version: v3.0.0
       annotations:
-        admission.datadoghq.com/java-lib.version: latest
+        admission.datadoghq.com/python-lib.version: latest
     spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: titlis-api
-          image: kailima/titlis-api:preprod-latest
+          image: kailima/titlis-api:v4.1.6
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -176,6 +176,13 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           livenessProbe:
             httpGet:
               path: /health
