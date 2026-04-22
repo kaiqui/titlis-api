@@ -41,6 +41,16 @@ class EventRouterTest {
     }
 
     @Test
+    fun `non-json udp payload is ignored before envelope parsing`() = runTest {
+        val scorecardRepo = mockk<ScorecardRepository>(relaxed = true)
+        val router = makeRouter(scorecardRepo = scorecardRepo, scope = this)
+
+        router.route("datadog.metric:1|c|#env:preprod,service:titlis-api".toByteArray())
+
+        coVerify(exactly = 0) { scorecardRepo.upsertScorecard(any(), any()) }
+    }
+
+    @Test
     fun `event is discarded when tenant_id present but no api_key`() = runTest {
         val scorecardRepo = mockk<ScorecardRepository>(relaxed = true)
         val router = makeRouter(scorecardRepo = scorecardRepo, scope = this)

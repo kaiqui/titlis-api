@@ -26,7 +26,13 @@ class EventRouter(
 
     suspend fun route(payload: ByteArray) {
         val raw = payload.decodeToString()
-        val envelope = runCatching { json.decodeFromString<UdpEnvelope>(raw) }
+        val normalized = raw.trimStart()
+        if (!normalized.startsWith("{")) {
+            logger.debug("Ignoring non-JSON UDP payload")
+            return
+        }
+
+        val envelope = runCatching { json.decodeFromString<UdpEnvelope>(normalized) }
             .getOrElse {
                 logger.warn("Invalid UDP envelope: ${raw.take(200)}")
                 return

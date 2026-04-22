@@ -37,8 +37,11 @@ class UdpServer(
                 val packet = DatagramPacket(buffer, buffer.size)
                 while (isActive) {
                     runCatching {
+                        // DatagramPacket keeps the last received length. Reset it so
+                        // a short packet does not truncate the next larger envelope.
+                        packet.length = buffer.size
                         socket.receive(packet)
-                        val payload = packet.data.copyOf(packet.length)
+                        val payload = extractPayload(packet, buffer.size)
                         if (!queue.trySend(payload).isSuccess) {
                             logger.warn("UDP queue full — dropping event")
                         }
@@ -48,5 +51,11 @@ class UdpServer(
                 }
             }
         }
+    }
+
+    internal fun extractPayload(packet: DatagramPacket, bufferSize: Int): ByteArray {
+        val payload = packet.data.copyOf(packet.length)
+        packet.length = bufferSize
+        return payload
     }
 }

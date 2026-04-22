@@ -38,6 +38,7 @@ import org.slf4j.LoggerFactory
 
 object DatabaseFactory {
     private val log = LoggerFactory.getLogger(DatabaseFactory::class.java)
+    private lateinit var dataSource: HikariDataSource
 
     fun init(config: DatabaseConfig) {
         val hikariConfig = HikariConfig().apply {
@@ -52,88 +53,97 @@ object DatabaseFactory {
             transactionIsolation = "TRANSACTION_REPEATABLE_READ"
             validate()
         }
-        val database = Database.connect(HikariDataSource(hikariConfig))
+        dataSource = HikariDataSource(hikariConfig)
+        val database = Database.connect(dataSource)
+
+        // Use dedicated autocommit connections for optional DDL so one failure does not
+        // poison the Exposed transaction used for table introspection/migration.
+        executeOptionalDdl("DROP VIEW IF EXISTS titlis_oltp.v_workload_dashboard CASCADE")
+        executeOptionalDdl("DROP VIEW IF EXISTS titlis_oltp.v_slo_framework_detection CASCADE")
+        executeOptionalDdl("DROP VIEW IF EXISTS titlis_audit.v_score_evolution CASCADE")
+        executeOptionalDdl("DROP VIEW IF EXISTS titlis_oltp.v_top_failing_rules CASCADE")
+        executeOptionalDdl("DROP VIEW IF EXISTS titlis_audit.v_remediation_effectiveness CASCADE")
+        executeOptionalDdl("CREATE EXTENSION IF NOT EXISTS vector")
+        executeOptionalDdl("CREATE SCHEMA IF NOT EXISTS titlis_ai")
+        executeOptionalDdl("""
+            CREATE TABLE IF NOT EXISTS titlis_ai.knowledge_chunks (
+                chunk_id    UUID         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+                tenant_id   BIGINT       REFERENCES titlis_oltp.tenants(tenant_id) ON DELETE CASCADE,
+                source_type TEXT         NOT NULL,
+                source_id   TEXT         NOT NULL,
+                chunk_text  TEXT         NOT NULL,
+                embedding   VECTOR(1536) NOT NULL,
+                metadata    JSONB,
+                created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+            )
+        """)
+        executeOptionalDdl("""
+            CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_tenant
+                ON titlis_ai.knowledge_chunks (tenant_id)
+        """)
+        executeOptionalDdl("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_chunks_global_src
+                ON titlis_ai.knowledge_chunks (source_type, source_id)
+                WHERE tenant_id IS NULL
+        """)
+        executeOptionalDdl("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_chunks_tenant_src
+                ON titlis_ai.knowledge_chunks (tenant_id, source_type, source_id)
+                WHERE tenant_id IS NOT NULL
+        """)
+
         transaction(database) {
-            // In development environments, we can assume the DB user has sufficient privileges to drop and recreate views as needed.
-            // Views are dropped before createMissingTablesAndColumns because PostgreSQL blocks
-            // ALTER COLUMN TYPE on any column referenced by a view. They are recreated immediately after.
-            // In environments where the DB user lacks DDL privileges (e.g. production), these operations
-            // are skipped with a warning — the application functions normally without the views.
-            //
-            // Each tryExecDdl wraps its work in a PostgreSQL SAVEPOINT so that a DDL failure rolls
-            // back only that statement without aborting the surrounding transaction. Without savepoints,
-            // a permission-denied error leaves the transaction in "aborted" state and every subsequent
-            // statement fails with "current transaction is aborted, commands ignored until end of
-            // transaction block".
-            tryExecDdl("DROP VIEW IF EXISTS titlis_oltp.v_workload_dashboard CASCADE")
-            tryExecDdl("DROP VIEW IF EXISTS titlis_oltp.v_slo_framework_detection CASCADE")
-            tryExecDdl("DROP VIEW IF EXISTS titlis_audit.v_score_evolution CASCADE")
-            tryExecDdl("DROP VIEW IF EXISTS titlis_oltp.v_top_failing_rules CASCADE")
-            tryExecDdl("DROP VIEW IF EXISTS titlis_audit.v_remediation_effectiveness CASCADE")
+            SchemaUtils.createMissingTablesAndColumns(
+                // titlis_oltp
+                Tenants,
+                Clusters,
+                Namespaces,
+                Workloads,
+                ValidationRules,
+                AppScorecards,
+                PillarScores,
+                ValidationResults,
+                AppRemediations,
+                RemediationIssues,
+                SloConfigs,
+                SloConfigPendingChanges,
+                TenantAiConfigs,
+                PlatformUsers,
+                TenantAuthIntegrations,
+                UserAuthIdentities,
+                TenantApiKeys,
+                PlatformUserInvites,
+                // titlis_audit
+                AppScorecardHistory,
+                PillarScoreHistory,
+                RemediationHistory,
+                SloComplianceHistory,
+                NotificationLog,
+                // titlis_ts
+                ResourceMetrics,
+                ScorecardScores,
+            )
+        }
 
-            tryExecDdl("CREATE EXTENSION IF NOT EXISTS vector")
-            tryExecDdl("CREATE SCHEMA IF NOT EXISTS titlis_ai")
-            tryExecDdl("""
-                CREATE TABLE IF NOT EXISTS titlis_ai.knowledge_chunks (
-                    chunk_id    UUID         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-                    tenant_id   BIGINT       REFERENCES titlis_oltp.tenants(tenant_id) ON DELETE CASCADE,
-                    source_type TEXT         NOT NULL,
-                    source_id   TEXT         NOT NULL,
-                    chunk_text  TEXT         NOT NULL,
-                    embedding   VECTOR(1536) NOT NULL,
-                    metadata    JSONB,
-                    created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
-                )
-            """)
-            tryExecDdl("""
-                CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_tenant
-                    ON titlis_ai.knowledge_chunks (tenant_id)
-            """)
-            tryExecDdl("""
-                CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_chunks_global_src
-                    ON titlis_ai.knowledge_chunks (source_type, source_id)
-                    WHERE tenant_id IS NULL
-            """)
-            tryExecDdl("""
-                CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_chunks_tenant_src
-                    ON titlis_ai.knowledge_chunks (tenant_id, source_type, source_id)
-                    WHERE tenant_id IS NOT NULL
-            """)
+        executeOptionalDdl("""
+            ALTER TABLE titlis_oltp.slo_configs
+                DROP CONSTRAINT IF EXISTS chk_warning_lt_target
+        """)
+        executeOptionalDdl("""
+            ALTER TABLE titlis_oltp.slo_configs
+                DROP CONSTRAINT IF EXISTS chk_warning_gt_target
+        """)
+        executeOptionalDdl("""
+            ALTER TABLE titlis_oltp.slo_configs
+                ADD CONSTRAINT chk_warning_gt_target
+                CHECK (warning IS NULL OR warning > target)
+        """)
+        executeOptionalDdl("""
+            COMMENT ON COLUMN titlis_oltp.slo_configs.warning
+                IS 'Limiar de aviso; deve ser maior que target'
+        """)
 
-            tryExecDdlBlock {
-                SchemaUtils.createMissingTablesAndColumns(
-                    // titlis_oltp
-                    Tenants,
-                    Clusters,
-                    Namespaces,
-                    Workloads,
-                    ValidationRules,
-                    AppScorecards,
-                    PillarScores,
-                    ValidationResults,
-                    AppRemediations,
-                    RemediationIssues,
-                    SloConfigs,
-                    SloConfigPendingChanges,
-                    TenantAiConfigs,
-                    PlatformUsers,
-                    TenantAuthIntegrations,
-                    UserAuthIdentities,
-                    TenantApiKeys,
-                    PlatformUserInvites,
-                    // titlis_audit
-                    AppScorecardHistory,
-                    PillarScoreHistory,
-                    RemediationHistory,
-                    SloComplianceHistory,
-                    NotificationLog,
-                    // titlis_ts
-                    ResourceMetrics,
-                    ScorecardScores,
-                )
-            }
-
-            tryExecDdl("""
+        executeOptionalDdl("""
                 CREATE OR REPLACE VIEW titlis_oltp.v_workload_dashboard AS
                 SELECT w.workload_id,
                     c.cluster_name,
@@ -163,7 +173,7 @@ object DatabaseFactory {
                 WHERE w.is_active = true AND n.is_excluded = false
             """)
 
-            tryExecDdl("""
+        executeOptionalDdl("""
                 CREATE OR REPLACE VIEW titlis_oltp.v_slo_framework_detection AS
                 SELECT n.namespace_name AS namespace,
                     sc.slo_config_name AS slo_name,
@@ -181,7 +191,7 @@ object DatabaseFactory {
                 ORDER BY (sc.detection_source::text = 'fallback'::text) DESC, sc.last_sync_at DESC NULLS LAST
             """)
 
-            tryExecDdl("""
+        executeOptionalDdl("""
                 CREATE OR REPLACE VIEW titlis_audit.v_score_evolution AS
                 SELECT app_scorecard_history.workload_id,
                     app_scorecard_history.scorecard_version,
@@ -196,7 +206,7 @@ object DatabaseFactory {
                 ORDER BY app_scorecard_history.workload_id, app_scorecard_history.evaluated_at DESC
             """)
 
-            tryExecDdl("""
+        executeOptionalDdl("""
                 CREATE OR REPLACE VIEW titlis_audit.v_top_failing_rules AS
                 SELECT vr.value ->> 'rule_ref' AS rule_id,
                     vr.value ->> 'pillar' AS pillar,
@@ -211,7 +221,7 @@ object DatabaseFactory {
                 ORDER BY count(*) DESC
             """)
 
-            tryExecDdl("""
+        executeOptionalDdl("""
                 CREATE OR REPLACE VIEW titlis_audit.v_remediation_effectiveness AS
                 SELECT remediation_history.workload_id,
                     count(*) AS total_attempts,
@@ -223,30 +233,25 @@ object DatabaseFactory {
                 FROM titlis_audit.remediation_history
                 GROUP BY remediation_history.workload_id
             """)
-        }
     }
 
     suspend fun <T> dbQuery(block: suspend () -> T): T =
         newSuspendedTransaction(Dispatchers.IO) { block() }
 
-    private fun Transaction.tryExecDdl(sql: String) {
+    private fun executeOptionalDdl(sql: String) {
         try {
-            exec("SAVEPOINT titlis_ddl_sp")
-            exec(sql)
-            exec("RELEASE SAVEPOINT titlis_ddl_sp")
+            dataSource.connection.use { connection ->
+                val previousAutoCommit = connection.autoCommit
+                connection.autoCommit = true
+                try {
+                    connection.createStatement().use { statement ->
+                        statement.execute(sql)
+                    }
+                } finally {
+                    connection.autoCommit = previousAutoCommit
+                }
+            }
         } catch (e: Exception) {
-            try { exec("ROLLBACK TO SAVEPOINT titlis_ddl_sp") } catch (_: Exception) {}
-            log.warn("DDL skipped (insufficient privileges — expected in production): ${e.message}")
-        }
-    }
-
-    private fun Transaction.tryExecDdlBlock(block: () -> Unit) {
-        try {
-            exec("SAVEPOINT titlis_ddl_sp")
-            block()
-            exec("RELEASE SAVEPOINT titlis_ddl_sp")
-        } catch (e: Exception) {
-            try { exec("ROLLBACK TO SAVEPOINT titlis_ddl_sp") } catch (_: Exception) {}
             log.warn("DDL skipped (insufficient privileges — expected in production): ${e.message}")
         }
     }
