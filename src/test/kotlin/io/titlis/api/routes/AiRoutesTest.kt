@@ -63,6 +63,262 @@ private fun fakeHttpClient(responseBody: String): HttpClient {
     return client
 }
 
+class AiRoutesHttpVersionTest {
+
+    @Test
+    fun `default HttpClient uses HTTP_1_1 to avoid h2c upgrade with uvicorn`() {
+        val client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()
+        assertEquals(HttpClient.Version.HTTP_1_1, client.version())
+    }
+}
+
+class AiRoutesAgentChatTest {
+
+    @Test
+    fun `POST agent chat returns 424 when AI not configured`() = testApplication {
+        val scorecardRepo = mockk<ScorecardRepository>()
+        val aiConfigRepo = mockk<AiConfigRepository>()
+        val authenticator = testRequestAuthenticator()
+        coEvery { aiConfigRepo.getByTenant(1L) } returns null
+
+        application {
+            installTestSecurity(authenticator)
+            aiRoutes(scorecardRepo, aiConfigRepo, fakeAppConfig(), authenticator)
+        }
+
+        val response = client.post("/v1/ai/agent/chat") {
+            header("X-Dev-Auth", "true")
+            header("X-Dev-Tenant-Id", "1")
+            header("X-Dev-Roles", "titlis.engineer")
+            contentType(ContentType.Application.Json)
+            setBody("""{"sessionId":"sess-001","message":"Olá"}""")
+        }
+
+        assertEquals(424, response.status.value)
+        assertContains(response.bodyAsText(), "ai_not_configured")
+    }
+
+    @Test
+    fun `POST agent chat proxies SSE stream from titlis-ai`() = testApplication {
+        val scorecardRepo = mockk<ScorecardRepository>()
+        val aiConfigRepo = mockk<AiConfigRepository>()
+        val authenticator = testRequestAuthenticator()
+        coEvery { aiConfigRepo.getByTenant(1L) } returns AI_RECORD
+
+        val ssePayload = "data: {\"type\":\"message\",\"content\":\"Olá! Sou ARIA.\"}\n\ndata: {\"type\":\"done\"}\n\n"
+        val httpClient = fakeHttpClient(ssePayload)
+
+        application {
+            installTestSecurity(authenticator)
+            aiRoutes(scorecardRepo, aiConfigRepo, fakeAppConfig(), authenticator, httpClient)
+        }
+
+        val response = client.post("/v1/ai/agent/chat") {
+            header("X-Dev-Auth", "true")
+            header("X-Dev-Tenant-Id", "1")
+            header("X-Dev-Roles", "titlis.engineer")
+            contentType(ContentType.Application.Json)
+            setBody("""{"sessionId":"sess-001","message":"Olá"}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertContains(response.headers["Content-Type"] ?: "", "text/event-stream")
+        assertContains(response.bodyAsText(), "ARIA")
+    }
+
+    @Test
+    fun `POST agent chat returns 401 without auth`() = testApplication {
+        val scorecardRepo = mockk<ScorecardRepository>()
+        val aiConfigRepo = mockk<AiConfigRepository>()
+        val authenticator = testRequestAuthenticator()
+
+        application {
+            installTestSecurity(authenticator)
+            aiRoutes(scorecardRepo, aiConfigRepo, fakeAppConfig(), authenticator)
+        }
+
+        val response = client.post("/v1/ai/agent/chat") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"sessionId":"sess-001","message":"Olá"}""")
+        }
+
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
+    @Test
+    fun `POST agent tools respond proxies SSE stream`() = testApplication {
+        val scorecardRepo = mockk<ScorecardRepository>()
+        val aiConfigRepo = mockk<AiConfigRepository>()
+        val authenticator = testRequestAuthenticator()
+
+        val ssePayload = "data: {\"type\":\"tool_result\",\"approved\":true}\n\ndata: {\"type\":\"done\"}\n\n"
+        val httpClient = fakeHttpClient(ssePayload)
+
+        application {
+            installTestSecurity(authenticator)
+            aiRoutes(scorecardRepo, aiConfigRepo, fakeAppConfig(), authenticator, httpClient)
+        }
+
+        val response = client.post("/v1/ai/agent/sess-abc/tools/respond") {
+            header("X-Dev-Auth", "true")
+            header("X-Dev-Tenant-Id", "1")
+            header("X-Dev-Roles", "titlis.engineer")
+            contentType(ContentType.Application.Json)
+            setBody("""{"decisions":[{"proposalId":"p-1","approved":true}]}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertContains(response.headers["Content-Type"] ?: "", "text/event-stream")
+        assertContains(response.bodyAsText(), "tool_result")
+    }
+}
+
+class AiRoutesRemediateTest {
+
+    @Test
+    fun `POST remediate returns 404 when workload not found`() = testApplication {
+        val scorecardRepo = mockk<ScorecardRepository>()
+        val aiConfigRepo = mockk<AiConfigRepository>()
+        val authenticator = testRequestAuthenticator()
+        coEvery { scorecardRepo.getByWorkloadId(any(), 1L) } returns null
+
+        application {
+            installTestSecurity(authenticator)
+            aiRoutes(scorecardRepo, aiConfigRepo, fakeAppConfig(), authenticator)
+        }
+
+        val response = client.post("/v1/ai/workloads/unknown-uid/remediate") {
+            header("X-Dev-Auth", "true")
+            header("X-Dev-Tenant-Id", "1")
+            header("X-Dev-Roles", "titlis.engineer")
+            contentType(ContentType.Application.Json)
+            setBody("""{"findingIds":["f-1"],"repoUrl":"https://github.com/org/repo"}""")
+        }
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+        assertContains(response.bodyAsText(), "workload_not_found")
+    }
+
+    @Test
+    fun `POST remediate returns 424 when AI not configured`() = testApplication {
+        val scorecardRepo = mockk<ScorecardRepository>()
+        val aiConfigRepo = mockk<AiConfigRepository>()
+        val authenticator = testRequestAuthenticator()
+        coEvery { scorecardRepo.getByWorkloadId(any(), 1L) } returns mapOf("workload_name" to "my-app")
+        coEvery { aiConfigRepo.getByTenant(1L) } returns null
+
+        application {
+            installTestSecurity(authenticator)
+            aiRoutes(scorecardRepo, aiConfigRepo, fakeAppConfig(), authenticator)
+        }
+
+        val response = client.post("/v1/ai/workloads/wl-uid/remediate") {
+            header("X-Dev-Auth", "true")
+            header("X-Dev-Tenant-Id", "1")
+            header("X-Dev-Roles", "titlis.engineer")
+            contentType(ContentType.Application.Json)
+            setBody("""{"findingIds":["f-1"],"repoUrl":"https://github.com/org/repo"}""")
+        }
+
+        assertEquals(424, response.status.value)
+        assertContains(response.bodyAsText(), "ai_not_configured")
+    }
+
+    @Test
+    fun `POST remediate proxies SSE stream with fix_ready event`() = testApplication {
+        val scorecardRepo = mockk<ScorecardRepository>()
+        val aiConfigRepo = mockk<AiConfigRepository>()
+        val authenticator = testRequestAuthenticator()
+        coEvery { scorecardRepo.getByWorkloadId(any(), 1L) } returns mapOf("workload_name" to "my-app")
+        coEvery { aiConfigRepo.getByTenant(1L) } returns AI_RECORD
+
+        val ssePayload = "data: {\"type\":\"fix_ready\",\"thread_id\":\"t-1\",\"patched_manifest\":\"...\"}\n\ndata: {\"type\":\"done\"}\n\n"
+        val httpClient = fakeHttpClient(ssePayload)
+
+        application {
+            installTestSecurity(authenticator)
+            aiRoutes(scorecardRepo, aiConfigRepo, fakeAppConfig(), authenticator, httpClient)
+        }
+
+        val response = client.post("/v1/ai/workloads/wl-uid/remediate") {
+            header("X-Dev-Auth", "true")
+            header("X-Dev-Tenant-Id", "1")
+            header("X-Dev-Roles", "titlis.engineer")
+            contentType(ContentType.Application.Json)
+            setBody("""{"findingIds":["f-1"],"repoUrl":"https://github.com/org/repo"}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertContains(response.headers["Content-Type"] ?: "", "text/event-stream")
+        assertContains(response.bodyAsText(), "fix_ready")
+    }
+
+    @Test
+    fun `POST remediate returns 401 without auth`() = testApplication {
+        val scorecardRepo = mockk<ScorecardRepository>()
+        val aiConfigRepo = mockk<AiConfigRepository>()
+        val authenticator = testRequestAuthenticator()
+
+        application {
+            installTestSecurity(authenticator)
+            aiRoutes(scorecardRepo, aiConfigRepo, fakeAppConfig(), authenticator)
+        }
+
+        val response = client.post("/v1/ai/workloads/wl-uid/remediate") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"findingIds":["f-1"],"repoUrl":"https://github.com/org/repo"}""")
+        }
+
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
+    @Test
+    fun `POST confirm remediation proxies SSE stream with pr_created event`() = testApplication {
+        val scorecardRepo = mockk<ScorecardRepository>()
+        val aiConfigRepo = mockk<AiConfigRepository>()
+        val authenticator = testRequestAuthenticator()
+
+        val ssePayload = "data: {\"type\":\"pr_created\",\"pr_url\":\"https://github.com/org/repo/pull/42\"}\n\ndata: {\"type\":\"done\"}\n\n"
+        val httpClient = fakeHttpClient(ssePayload)
+
+        application {
+            installTestSecurity(authenticator)
+            aiRoutes(scorecardRepo, aiConfigRepo, fakeAppConfig(), authenticator, httpClient)
+        }
+
+        val response = client.post("/v1/ai/remediate/thread-xyz/confirm") {
+            header("X-Dev-Auth", "true")
+            header("X-Dev-Tenant-Id", "1")
+            header("X-Dev-Roles", "titlis.engineer")
+            contentType(ContentType.Application.Json)
+            setBody("""{"approved":true}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertContains(response.headers["Content-Type"] ?: "", "text/event-stream")
+        assertContains(response.bodyAsText(), "pr_created")
+    }
+
+    @Test
+    fun `POST confirm remediation returns 401 without auth`() = testApplication {
+        val scorecardRepo = mockk<ScorecardRepository>()
+        val aiConfigRepo = mockk<AiConfigRepository>()
+        val authenticator = testRequestAuthenticator()
+
+        application {
+            installTestSecurity(authenticator)
+            aiRoutes(scorecardRepo, aiConfigRepo, fakeAppConfig(), authenticator)
+        }
+
+        val response = client.post("/v1/ai/remediate/thread-xyz/confirm") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"approved":true}""")
+        }
+
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+}
+
 class AiRoutesExplainTest {
 
     @Test

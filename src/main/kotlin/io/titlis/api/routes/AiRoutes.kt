@@ -9,9 +9,11 @@ import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytesWriter
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.writeFully
 import io.titlis.api.auth.RequestAuthenticator
 import io.titlis.api.auth.protectedProviderNames
@@ -33,6 +35,24 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+
+@Serializable
+data class AgentChatRequest(
+    val sessionId: String,
+    val message: String,
+)
+
+@Serializable
+data class AgentToolsRespondRequest(
+    val decisions: List<AgentToolDecision>,
+)
+
+@Serializable
+data class AgentToolDecision(
+    val proposalId: String,
+    val approved: Boolean,
+    val editedArgs: kotlinx.serialization.json.JsonObject? = null,
+)
 
 @Serializable
 data class RemediateFindingsRequest(
@@ -62,7 +82,7 @@ fun Application.aiRoutes(
     aiConfigRepo: AiConfigRepository,
     appConfig: AppConfig,
     requestAuthenticator: RequestAuthenticator? = null,
-    httpClient: HttpClient = HttpClient.newHttpClient(),
+    httpClient: HttpClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build(),
 ) {
 
     routing {
@@ -106,19 +126,7 @@ fun Application.aiRoutes(
                     call.response.headers.append("Cache-Control", "no-cache")
                     call.response.headers.append("X-Accel-Buffering", "no")
                     call.respondBytesWriter(contentType = ContentType.parse("text/event-stream")) {
-                        val channel = this
-                        withContext(Dispatchers.IO) {
-                            val response = httpClient.send(aiRequest, HttpResponse.BodyHandlers.ofInputStream())
-                            val buffer = ByteArray(8192)
-                            response.body().use { stream ->
-                                var read = stream.read(buffer)
-                                while (read >= 0) {
-                                    channel.writeFully(buffer, 0, read)
-                                    channel.flush()
-                                    read = stream.read(buffer)
-                                }
-                            }
-                        }
+                        withContext(Dispatchers.IO) { proxyAiSse(this@respondBytesWriter, httpClient, aiRequest) }
                     }
                 }
 
@@ -143,19 +151,74 @@ fun Application.aiRoutes(
                     call.response.headers.append("Cache-Control", "no-cache")
                     call.response.headers.append("X-Accel-Buffering", "no")
                     call.respondBytesWriter(contentType = ContentType.parse("text/event-stream")) {
-                        val channel = this
-                        withContext(Dispatchers.IO) {
-                            val response = httpClient.send(aiRequest, HttpResponse.BodyHandlers.ofInputStream())
-                            val buffer = ByteArray(8192)
-                            response.body().use { stream ->
-                                var read = stream.read(buffer)
-                                while (read >= 0) {
-                                    channel.writeFully(buffer, 0, read)
-                                    channel.flush()
-                                    read = stream.read(buffer)
-                                }
-                            }
-                        }
+                        withContext(Dispatchers.IO) { proxyAiSse(this@respondBytesWriter, httpClient, aiRequest) }
+                    }
+                }
+
+                post("/agent/chat") {
+                    val principal = call.requireRole() ?: return@post
+                    val body = call.receive<AgentChatRequest>()
+
+                    val aiConfig = aiConfigRepo.getByTenant(principal.tenantId)
+                        ?: return@post call.respond(
+                            HttpStatusCode(424, "Failed Dependency"),
+                            mapOf("error" to "ai_not_configured"),
+                        )
+
+                    val aiPayload = buildAgentChatPayload(principal.tenantId, body, aiConfig)
+                    val aiRequest = HttpRequest.newBuilder()
+                        .uri(URI.create("${appConfig.aiService.url}/v1/agent/chat"))
+                        .header("Content-Type", "application/json")
+                        .header("X-Internal-Secret", appConfig.aiService.internalSecret)
+                        .POST(HttpRequest.BodyPublishers.ofString(aiPayload))
+                        .build()
+
+                    call.response.headers.append("Cache-Control", "no-cache")
+                    call.response.headers.append("X-Accel-Buffering", "no")
+                    call.respondBytesWriter(contentType = ContentType.parse("text/event-stream")) {
+                        withContext(Dispatchers.IO) { proxyAiSse(this@respondBytesWriter, httpClient, aiRequest) }
+                    }
+                }
+
+                post("/agent/{sessionId}/tools/respond") {
+                    call.requireRole() ?: return@post
+                    val sessionId = call.parameters["sessionId"]
+                        ?: return@post call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "sessionId_required"),
+                        )
+                    val body = call.receive<AgentToolsRespondRequest>()
+
+                    val aiPayload = buildToolsRespondPayload(body)
+                    val aiRequest = HttpRequest.newBuilder()
+                        .uri(URI.create("${appConfig.aiService.url}/v1/agent/$sessionId/tools/respond"))
+                        .header("Content-Type", "application/json")
+                        .header("X-Internal-Secret", appConfig.aiService.internalSecret)
+                        .POST(HttpRequest.BodyPublishers.ofString(aiPayload))
+                        .build()
+
+                    call.response.headers.append("Cache-Control", "no-cache")
+                    call.response.headers.append("X-Accel-Buffering", "no")
+                    call.respondBytesWriter(contentType = ContentType.parse("text/event-stream")) {
+                        withContext(Dispatchers.IO) { proxyAiSse(this@respondBytesWriter, httpClient, aiRequest) }
+                    }
+                }
+
+                get("/agent/{sessionId}/audit") {
+                    call.requireRole() ?: return@get
+                    val sessionId = call.parameters["sessionId"]
+                        ?: return@get call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "sessionId_required"),
+                        )
+                    val aiRequest = HttpRequest.newBuilder()
+                        .uri(URI.create("${appConfig.aiService.url}/v1/agent/$sessionId/audit"))
+                        .header("X-Internal-Secret", appConfig.aiService.internalSecret)
+                        .GET()
+                        .build()
+                    withContext(Dispatchers.IO) {
+                        val response = httpClient.send(aiRequest, HttpResponse.BodyHandlers.ofString())
+                        call.respond(HttpStatusCode.fromValue(response.statusCode()), response.body())
                     }
                 }
 
@@ -218,19 +281,7 @@ fun Application.aiRoutes(
                     call.response.headers.append("Cache-Control", "no-cache")
                     call.response.headers.append("X-Accel-Buffering", "no")
                     call.respondBytesWriter(contentType = ContentType.parse("text/event-stream")) {
-                        val channel = this
-                        withContext(Dispatchers.IO) {
-                            val response = httpClient.send(aiRequest, HttpResponse.BodyHandlers.ofInputStream())
-                            val buffer = ByteArray(8192)
-                            response.body().use { stream ->
-                                var read = stream.read(buffer)
-                                while (read >= 0) {
-                                    channel.writeFully(buffer, 0, read)
-                                    channel.flush()
-                                    read = stream.read(buffer)
-                                }
-                            }
-                        }
+                        withContext(Dispatchers.IO) { proxyAiSse(this@respondBytesWriter, httpClient, aiRequest) }
                     }
                 }
             }
@@ -245,6 +296,66 @@ fun Application.aiRoutes(
         }
     }
 }
+
+private suspend fun proxyAiSse(
+    channel: ByteWriteChannel,
+    httpClient: HttpClient,
+    request: HttpRequest,
+) {
+    channel.writeFully(": keepalive\n\n".toByteArray())
+    channel.flush()
+    val response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream())
+    if (response.statusCode() != 200) {
+        val body = response.body().bufferedReader().readText().take(400).replace("\"", "'")
+        val errorEvent = buildJsonObject {
+            put("type", "error")
+            put("error", "titlis-ai retornou ${response.statusCode()}: $body")
+        }
+        channel.writeFully("data: $errorEvent\n\n".toByteArray())
+        channel.writeFully("data: {\"type\":\"done\"}\n\n".toByteArray())
+        return
+    }
+    val buffer = ByteArray(8192)
+    response.body().use { stream ->
+        var read = stream.read(buffer)
+        while (read >= 0) {
+            channel.writeFully(buffer, 0, read)
+            channel.flush()
+            read = stream.read(buffer)
+        }
+    }
+}
+
+private fun buildAgentChatPayload(
+    tenantId: Long,
+    body: AgentChatRequest,
+    aiConfig: TenantAiConfigRecord,
+): String = buildJsonObject {
+    put("tenant_id", tenantId)
+    put("session_id", body.sessionId)
+    put("message", body.message)
+    put("ai_config", buildJsonObject {
+        put("provider", aiConfig.provider)
+        put("model", aiConfig.model)
+        put("api_key", aiConfig.apiKeyEnc)
+        put("github_token", aiConfig.githubTokenEnc?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("github_base_branch", aiConfig.githubBaseBranch)
+        put("monthly_token_budget", aiConfig.monthlyTokenBudget?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("tokens_used_month", aiConfig.tokensUsedMonth)
+    })
+}.toString()
+
+private fun buildToolsRespondPayload(body: AgentToolsRespondRequest): String = buildJsonObject {
+    put("decisions", buildJsonArray {
+        body.decisions.forEach { d ->
+            add(buildJsonObject {
+                put("proposal_id", d.proposalId)
+                put("approved", d.approved)
+                if (d.editedArgs != null) put("edited_args", d.editedArgs) else put("edited_args", JsonNull)
+            })
+        }
+    })
+}.toString()
 
 private fun buildRemediatePayload(
     tenantId: Long,

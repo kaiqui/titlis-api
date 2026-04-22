@@ -203,6 +203,18 @@ GET  /v1/workloads/:id/remediation   → { status, pr_url, pr_number, triggered_
 GET  /v1/slos?namespace=x&cluster=y  → [ SloConfig ]
 GET  /v1/namespaces/:ns/slos/:name   → SloConfig
 
+# Agente conversacional IA (proxy SSE → titlis-ai)
+POST /v1/ai/agent/chat                         → SSE: thinking | awaiting_approvals | message | scope_rejected | error | done
+POST /v1/ai/agent/{sessionId}/tools/respond    → SSE: tool_result | thinking | message | awaiting_approvals | done
+GET  /v1/ai/agent/{sessionId}/audit            → JSON: audit log da sessão
+
+# Remediação LangGraph (proxy SSE → titlis-ai)
+POST /v1/ai/workloads/{id}/remediate           → SSE: fix_ready | existing_pr | progress | error | done
+POST /v1/ai/remediate/{threadId}/confirm       → SSE: pr_created | progress | done
+
+# Explicação de findings (proxy SSE → titlis-ai)
+POST /v1/ai/workloads/{id}/findings/{ruleId}/explain → SSE stream de markdown
+
 # Settings (Admin only — 403 se não for admin)
 GET  /v1/settings/auth/providers             → [ TenantAuthIntegration ]
 POST /v1/settings/auth/providers             → cria/atualiza provider OIDC

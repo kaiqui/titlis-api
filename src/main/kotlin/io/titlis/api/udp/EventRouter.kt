@@ -56,6 +56,13 @@ class EventRouter(
             "scorecard_evaluated" -> {
                 val event = json.decodeFromJsonElement<ScorecardEvaluatedEvent>(envelope.data)
                 scorecardRepo.upsertScorecard(event, tenantId)
+                if (event.validationResults.isNotEmpty()) {
+                    val passedRuleIds = event.validationResults
+                        .filter { it.passed }
+                        .map { it.ruleId }
+                        .toSet()
+                    remediationRepo.autoResolveIfAllFixed(event.workloadId, tenantId, passedRuleIds)
+                }
             }
             "remediation_started", "remediation_updated" -> {
                 val event = json.decodeFromJsonElement<RemediationEvent>(envelope.data)

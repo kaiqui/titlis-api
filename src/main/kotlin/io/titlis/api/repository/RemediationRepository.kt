@@ -2,31 +2,41 @@ package io.titlis.api.repository
 
 import io.titlis.api.database.DatabaseFactory.dbQuery
 import io.titlis.api.database.tables.AppRemediations
+import io.titlis.api.database.tables.Clusters
+import io.titlis.api.database.tables.Namespaces
 import io.titlis.api.database.tables.RemediationHistory
 import io.titlis.api.database.tables.Workloads
 import io.titlis.api.domain.RemediationEvent
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.add
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.select
+import org.jetbrains.exposed.sql.update
 import org.jetbrains.exposed.sql.upsert
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 
 class RemediationRepository {
 
-    // Resolve k8s_uid para workload_id (Long BIGINT IDENTITY).
-    private fun resolveWorkloadId(k8sUid: String): Long =
-        Workloads
+    private fun resolveWorkloadId(k8sUid: String, tenantId: Long? = null): Long {
+        if (tenantId != null) {
+            tenantScopedWorkloadRow(k8sUid, tenantId)?.get(Workloads.workloadId)
+                ?.let { return it }
+        }
+        return (Workloads innerJoin Namespaces innerJoin Clusters)
             .select(Workloads.workloadId)
             .where { Workloads.k8sUid eq k8sUid }
-            .singleOrNull()?.get(Workloads.workloadId)
+            .firstOrNull()?.get(Workloads.workloadId)
             ?: error("Workload não encontrado para k8s_uid=$k8sUid")
+    }
 
     suspend fun upsertRemediation(event: RemediationEvent, tenantIdHint: Long? = null) = dbQuery {
-        val workloadId = resolveWorkloadId(event.workloadId)
+        val workloadId = resolveWorkloadId(event.workloadId, tenantIdHint)
         val tenantId = chooseTenantId(
             trustedTenantId = tenantIdHint,
             derivedTenantId = resolveTenantIdByWorkloadId(workloadId) ?: resolveSingleActiveTenantIdOrNull(),
@@ -100,7 +110,7 @@ class RemediationRepository {
         repositoryUrl: String?,
         findingIds: List<String>,
     ) = dbQuery {
-        val workloadId = resolveWorkloadId(k8sUid)
+        val workloadId = resolveWorkloadId(k8sUid, tenantId)
         val now = OffsetDateTime.now(ZoneOffset.UTC)
         val pendingJson = buildJsonArray { findingIds.forEach { add(it) } }.toString()
         AppRemediations.upsert(
@@ -158,6 +168,72 @@ class RemediationRepository {
                     "resolved_at" to row[RemediationHistory.resolvedAt]?.toString(),
                 )
             }
+    }
+
+    suspend fun autoResolveIfAllFixed(
+        k8sUid: String,
+        tenantId: Long,
+        passedRuleIds: Set<String>,
+    ) = dbQuery {
+        if (passedRuleIds.isEmpty()) return@dbQuery
+        val workloadId = tenantScopedWorkloadRow(k8sUid, tenantId)
+            ?.get(Workloads.workloadId) ?: return@dbQuery
+
+        val active = AppRemediations
+            .select(
+                AppRemediations.version,
+                AppRemediations.appRemediationStatus,
+                AppRemediations.pendingRuleIds,
+                AppRemediations.githubPrNumber,
+                AppRemediations.githubPrUrl,
+                AppRemediations.githubBranch,
+                AppRemediations.repositoryUrl,
+                AppRemediations.triggeredAt,
+            )
+            .where {
+                (AppRemediations.workloadId eq workloadId) and
+                    (AppRemediations.tenantId eq tenantId) and
+                    (
+                        (AppRemediations.appRemediationStatus eq "IN_PROGRESS") or
+                            (AppRemediations.appRemediationStatus eq "PR_OPEN")
+                    )
+            }
+            .singleOrNull() ?: return@dbQuery
+
+        val pendingJson = active[AppRemediations.pendingRuleIds]
+        if (pendingJson.isNullOrBlank()) return@dbQuery
+
+        val pendingRuleIds = runCatching {
+            Json.decodeFromString<List<String>>(pendingJson)
+        }.getOrElse { return@dbQuery }
+
+        if (pendingRuleIds.isEmpty() || !passedRuleIds.containsAll(pendingRuleIds)) return@dbQuery
+
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+
+        RemediationHistory.insert {
+            it[RemediationHistory.workloadId] = workloadId
+            it[RemediationHistory.tenantId] = tenantId
+            it[RemediationHistory.remediationVersion] = active[AppRemediations.version]
+            it[RemediationHistory.appRemediationStatus] = "PR_MERGED"
+            it[RemediationHistory.previousAppRemediationStatus] = active[AppRemediations.appRemediationStatus]
+            it[RemediationHistory.githubPrNumber] = active[AppRemediations.githubPrNumber]
+            it[RemediationHistory.githubPrUrl] = active[AppRemediations.githubPrUrl]
+            it[RemediationHistory.githubBranch] = active[AppRemediations.githubBranch]
+            it[RemediationHistory.repositoryUrl] = active[AppRemediations.repositoryUrl]
+            it[RemediationHistory.triggeredAt] = active[AppRemediations.triggeredAt]
+            it[RemediationHistory.resolvedAt] = now
+            it[RemediationHistory.createdAt] = now
+        }
+
+        AppRemediations.update({
+            (AppRemediations.workloadId eq workloadId) and
+                (AppRemediations.tenantId eq tenantId)
+        }) {
+            it[AppRemediations.appRemediationStatus] = "PR_MERGED"
+            it[AppRemediations.resolvedAt] = now
+            it[AppRemediations.updatedAt] = now
+        }
     }
 
     suspend fun getByWorkload(k8sUid: String, tenantId: Long): Map<String, Any?>? = dbQuery {

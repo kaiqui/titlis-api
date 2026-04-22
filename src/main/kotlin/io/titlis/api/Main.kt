@@ -46,7 +46,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
 
 fun main() {
-    embeddedServer(Netty, port = 8080, module = Application::module).start(wait = true)
+    embeddedServer(Netty, configure = {
+        connector { port = 8080 }
+        responseWriteTimeoutSeconds = 300
+        requestReadTimeoutSeconds = 30
+    }, module = Application::module).start(wait = true)
 }
 
 fun Application.module() {

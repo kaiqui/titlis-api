@@ -637,7 +637,7 @@ class AuthRepository(
 
     private fun ResultRow.toAuthenticatedUser(
         authProvider: String = "local",
-        onboardingCompleted: Boolean = this.getOrNull(TenantAuthIntegrations.tenantAuthIntegrationId) != null,
+        onboardingCompleted: Boolean = true,
     ): AuthenticatedUser = AuthenticatedUser(
         id = this[PlatformUsers.platformUserId],
         tenantId = this[PlatformUsers.tenantId],

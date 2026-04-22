@@ -51,6 +51,7 @@ data class AuthUserResponse(
 
 @Serializable
 data class AuthSessionResponse(
+    val provider: String = "local",
     val accessToken: String,
     val expiresAt: String,
     val user: AuthUserResponse,
@@ -58,6 +59,7 @@ data class AuthSessionResponse(
 
 @Serializable
 data class BootstrapSetupResponse(
+    val provider: String = "local",
     val accessToken: String,
     val expiresAt: String,
     val user: AuthUserResponse,
