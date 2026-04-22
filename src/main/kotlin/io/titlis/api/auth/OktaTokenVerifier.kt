@@ -13,9 +13,11 @@ data class OktaIdentity(
     val subject: String,
     val email: String?,
     val tenantId: Long?,
-    val roles: List<String>,
+    val groups: List<String>,
     val issuer: String,
-)
+) {
+    fun platformRole(): PlatformRole? = platformRoleFromIamGroups(groups)
+}
 
 class OktaTokenVerifier(
     private val config: AuthConfig,
@@ -63,9 +65,28 @@ class OktaTokenVerifier(
         email = getClaim("email")?.asString(),
         tenantId = getClaim("titlis_tenant_id")?.asString()?.toLongOrNull()
             ?: getClaim("titlis_tenant_id")?.asLong(),
-        roles = getClaim("titlis_roles")?.asList(String::class.java)?.filterNotNull().orEmpty(),
+        groups = extractGroups(),
         issuer = issuer,
     )
+
+    private fun Payload.extractGroups(): List<String> {
+        val groupedClaims = listOf("group", "groups", "titlis_roles")
+        for (claimName in groupedClaims) {
+            val claim = getClaim(claimName) ?: continue
+            claim.asList(String::class.java)
+                ?.filterNotNull()
+                ?.map(String::trim)
+                ?.filter(String::isNotBlank)
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { return it }
+
+            claim.asString()
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { return listOf(it) }
+        }
+        return emptyList()
+    }
 
     private fun normalizeIssuer(value: String): String = value
         .trim()

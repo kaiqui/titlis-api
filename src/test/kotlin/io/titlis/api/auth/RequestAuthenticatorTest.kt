@@ -4,19 +4,26 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.install
 import io.ktor.server.auth.authenticate
+import io.ktor.server.auth.Authentication
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.auth.principal
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
 import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import io.titlis.api.repository.AuthRepository
 import io.titlis.api.routes.installTestSecurity
 import io.titlis.api.routes.testAuthConfig
 import io.titlis.api.routes.testRequestAuthenticator
 import io.titlis.api.routes.testTokenService
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -147,5 +154,108 @@ class RequestAuthenticatorTest {
 
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals("LOCAL:7:local@titlis.dev", response.bodyAsText())
+    }
+
+    @Test
+    fun `rejects okta token when group claim is missing`() = testApplication {
+        val authConfig = testAuthConfig(authMode = "okta")
+        val authRepository = mockk<AuthRepository>()
+        val oktaTokenVerifier = mockk<OktaTokenVerifier>()
+        every { oktaTokenVerifier.verify("okta-token") } returns OktaIdentity(
+            subject = "okta-user",
+            email = "user@jeitto.com",
+            tenantId = 42,
+            groups = emptyList(),
+            issuer = "https://example.okta.com/oauth2/default",
+        )
+
+        val authenticator = RequestAuthenticator(
+            config = authConfig,
+            authRepository = authRepository,
+            localTokenService = testTokenService(authConfig),
+            oktaTokenVerifier = oktaTokenVerifier,
+        )
+
+        application {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true })
+            }
+            install(Authentication) {
+                appAuth(authenticator)
+            }
+            routing {
+                authenticate("app-auth") {
+                    get("/protected") {
+                        call.respond("ok")
+                    }
+                }
+            }
+        }
+
+        val response = client.get("/protected") {
+            header("Authorization", "Bearer okta-token")
+        }
+
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+        coVerify(exactly = 0) { authRepository.resolveFederatedUser(any()) }
+    }
+
+    @Test
+    fun `uses okta group claim to override principal role`() = testApplication {
+        val authConfig = testAuthConfig(authMode = "okta")
+        val authRepository = mockk<AuthRepository>()
+        val oktaTokenVerifier = mockk<OktaTokenVerifier>()
+        val identity = OktaIdentity(
+            subject = "okta-user",
+            email = "user@jeitto.com",
+            tenantId = 42,
+            groups = listOf("Jeitto Confia - Admin"),
+            issuer = "https://example.okta.com/oauth2/default",
+        )
+        val user = AuthenticatedUser(
+            id = 7,
+            tenantId = 42,
+            tenantSlug = "tenant-42",
+            tenantName = "Tenant 42",
+            email = "user@jeitto.com",
+            displayName = "Federated User",
+            role = PlatformRole.VIEWER,
+            authProvider = "okta",
+            onboardingCompleted = true,
+        )
+
+        every { oktaTokenVerifier.verify("okta-token") } returns identity
+        coEvery { authRepository.resolveFederatedUser(identity) } returns user
+
+        val authenticator = RequestAuthenticator(
+            config = authConfig,
+            authRepository = authRepository,
+            localTokenService = testTokenService(authConfig),
+            oktaTokenVerifier = oktaTokenVerifier,
+        )
+
+        application {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true })
+            }
+            install(Authentication) {
+                appAuth(authenticator)
+            }
+            routing {
+                authenticate("app-auth") {
+                    get("/protected") {
+                        val principal = call.principal<AppPrincipal>()
+                        call.respond("${principal?.source}:${principal?.tenantId}:${principal?.role?.dbValue}")
+                    }
+                }
+            }
+        }
+
+        val response = client.get("/protected") {
+            header("Authorization", "Bearer okta-token")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("OKTA:42:admin", response.bodyAsText())
     }
 }

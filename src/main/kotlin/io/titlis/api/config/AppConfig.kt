@@ -211,7 +211,7 @@ data class AppConfig(
                         config = auth,
                         path = "devRoles",
                         env = "TITLIS_DEV_ROLES",
-                        default = "titlis.admin",
+                        default = "Jeitto Confia - Admin",
                     ).split(",").map(String::trim).filter(String::isNotBlank),
                 ),
             )

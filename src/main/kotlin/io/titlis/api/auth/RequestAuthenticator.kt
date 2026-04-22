@@ -37,7 +37,8 @@ class RequestAuthenticator(
 
         if (authMode == AuthMode.OKTA || authMode == AuthMode.MIXED) {
             val oktaIdentity = oktaTokenVerifier.verify(token) ?: return null
-            return authRepository.resolveFederatedUser(oktaIdentity)?.toPrincipal(AuthSource.OKTA)
+            val role = oktaIdentity.platformRole() ?: return null
+            return authRepository.resolveFederatedUser(oktaIdentity)?.toPrincipal(AuthSource.OKTA, role)
         }
 
         return null
@@ -56,7 +57,9 @@ class RequestAuthenticator(
 
         val tenantId = headers["X-Dev-Tenant-Id"]?.toLongOrNull() ?: config.devTenantId
         val email = headers["X-Dev-User"] ?: config.devUserEmail
-        val role = parseRole(headers["X-Dev-Roles"]?.split(",")?.map(String::trim)?.filter(String::isNotBlank).orEmpty().ifEmpty { config.devRoles })
+        val role = platformRoleFromOptionalGroups(
+            headers["X-Dev-Roles"]?.split(",")?.map(String::trim)?.filter(String::isNotBlank).orEmpty().ifEmpty { config.devRoles },
+        )
 
         logger.warn(
             "Titlis dev bypass authentication was used. path={} tenantId={} email={} role={}",
@@ -87,19 +90,11 @@ class RequestAuthenticator(
         tenantName = "Tenant ${config.devTenantId}",
         email = config.devUserEmail,
         displayName = "Auth Disabled",
-        role = parseRole(config.devRoles),
+        role = platformRoleFromOptionalGroups(config.devRoles),
         authProvider = "auth_disabled",
         onboardingCompleted = true,
         source = source,
     )
-
-    private fun parseRole(values: List<String>): PlatformRole {
-        val normalized = values.map { it.lowercase() }
-        return when {
-            normalized.any { it == "titlis.admin" || it == "admin" } -> PlatformRole.ADMIN
-            else -> PlatformRole.VIEWER
-        }
-    }
 
     private fun extractBearerToken(call: ApplicationCall): String? {
         val header = call.request.headers[HttpHeaders.Authorization] ?: return null

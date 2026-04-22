@@ -35,14 +35,17 @@ data class AppPrincipal(
     )
 }
 
-fun AuthenticatedUser.toPrincipal(source: AuthSource): AppPrincipal = AppPrincipal(
+fun AuthenticatedUser.toPrincipal(
+    source: AuthSource,
+    roleOverride: PlatformRole? = null,
+): AppPrincipal = AppPrincipal(
     userId = id,
     tenantId = tenantId,
     tenantSlug = tenantSlug,
     tenantName = tenantName,
     email = email,
     displayName = displayName,
-    role = role,
+    role = roleOverride ?: role,
     authProvider = authProvider,
     onboardingCompleted = onboardingCompleted,
     source = source,

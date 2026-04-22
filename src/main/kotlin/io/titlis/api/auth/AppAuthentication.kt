@@ -66,7 +66,8 @@ fun AuthenticationConfig.oktaJwtAuth(
         }
         validate { credential ->
             val identity = verifier.payloadToIdentity(credential.payload) ?: return@validate null
-            authRepository.resolveFederatedUser(identity)?.toPrincipal(AuthSource.OKTA)
+            val role = identity.platformRole() ?: return@validate null
+            authRepository.resolveFederatedUser(identity)?.toPrincipal(AuthSource.OKTA, role)
         }
         challenge { _, _ ->
             call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "missing_or_invalid_token"))

@@ -32,7 +32,7 @@ internal fun testAuthConfig(
     devBypassEnabled = devBypassEnabled,
     devTenantId = 1,
     devUserEmail = "dev@titlis.local",
-    devRoles = listOf("titlis.admin"),
+    devRoles = listOf("Jeitto Confia - Admin"),
 )
 
 internal fun testRequestAuthenticator(
@@ -78,7 +78,7 @@ internal fun legacyTestRequestAuthenticator(): RequestAuthenticator {
         devBypassEnabled = true,
         devTenantId = 1,
         devUserEmail = "dev@titlis.local",
-        devRoles = listOf("titlis.admin"),
+        devRoles = listOf("Jeitto Confia - Admin"),
     )
 
     return testRequestAuthenticator(authConfig)

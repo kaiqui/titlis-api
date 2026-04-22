@@ -282,7 +282,7 @@ class AuthRepository(
             it[claimsSnapshot] = buildJsonObject {
                 put("email", email)
                 put("tenant_id", tenantId)
-                put("roles", buildJsonArray { identity.roles.forEach { role -> add(JsonPrimitive(role)) } })
+                put("groups", buildJsonArray { identity.groups.forEach { group -> add(JsonPrimitive(group)) } })
             }.toString()
             it[lastAuthenticatedAt] = now
             it[createdAt] = now
