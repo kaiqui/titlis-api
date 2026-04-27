@@ -435,6 +435,13 @@ class ScorecardRepository {
         now: OffsetDateTime,
         tenantId: Long,
     ): Long {
+        val existingId = Clusters
+            .select(Clusters.clusterId)
+            .where { (Clusters.clusterName eq clusterNameValue) and (Clusters.tenantId eq tenantId) }
+            .singleOrNull()
+            ?.get(Clusters.clusterId)
+        if (existingId != null) return existingId
+
         Clusters.upsert(
             Clusters.clusterName,
             Clusters.tenantId,
@@ -459,6 +466,13 @@ class ScorecardRepository {
         namespaceNameValue: String,
         now: OffsetDateTime,
     ): Long {
+        val existingId = Namespaces
+            .select(Namespaces.namespaceId)
+            .where { (Namespaces.clusterId eq clusterIdValue) and (Namespaces.namespaceName eq namespaceNameValue) }
+            .singleOrNull()
+            ?.get(Namespaces.namespaceId)
+        if (existingId != null) return existingId
+
         Namespaces.upsert(
             Namespaces.clusterId,
             Namespaces.namespaceName,
@@ -472,10 +486,7 @@ class ScorecardRepository {
 
         return Namespaces
             .select(Namespaces.namespaceId)
-            .where {
-                (Namespaces.clusterId eq clusterIdValue) and
-                    (Namespaces.namespaceName eq namespaceNameValue)
-            }
+            .where { (Namespaces.clusterId eq clusterIdValue) and (Namespaces.namespaceName eq namespaceNameValue) }
             .single()[Namespaces.namespaceId]
     }
 

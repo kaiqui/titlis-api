@@ -52,7 +52,7 @@ object DatabaseFactory {
             maxLifetime = config.maxLifetime
             driverClassName = "org.postgresql.Driver"
             isAutoCommit = false
-            transactionIsolation = "TRANSACTION_REPEATABLE_READ"
+            transactionIsolation = "TRANSACTION_READ_COMMITTED"
             validate()
         }
         dataSource = HikariDataSource(hikariConfig)
