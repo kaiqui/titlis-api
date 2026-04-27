@@ -8,8 +8,10 @@ data class DatabaseConfig(
     val user: String,
     val password: String,
     val maxPoolSize: Int,
+    val minIdle: Int,
     val connectionTimeout: Long,
     val idleTimeout: Long,
+    val maxLifetime: Long,
 )
 
 data class UdpConfig(
@@ -76,7 +78,13 @@ data class AppConfig(
                         config = db,
                         path = "pool.maxPoolSize",
                         env = "DB_POOL_MAX",
-                        default = "10",
+                        default = "5",
+                    ).toInt(),
+                    minIdle = propertyOrEnv(
+                        config = db,
+                        path = "pool.minIdle",
+                        env = "DB_POOL_MIN_IDLE",
+                        default = "2",
                     ).toInt(),
                     connectionTimeout = propertyOrEnv(
                         config = db,
@@ -89,6 +97,12 @@ data class AppConfig(
                         path = "pool.idleTimeout",
                         env = "DB_POOL_IDLE_TIMEOUT",
                         default = "600000",
+                    ).toLong(),
+                    maxLifetime = propertyOrEnv(
+                        config = db,
+                        path = "pool.maxLifetime",
+                        env = "DB_POOL_MAX_LIFETIME",
+                        default = "1800000",
                     ).toLong(),
                 ),
                 udp = UdpConfig(

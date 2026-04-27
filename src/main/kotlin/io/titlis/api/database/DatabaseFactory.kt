@@ -46,8 +46,10 @@ object DatabaseFactory {
             username = config.user
             password = config.password
             maximumPoolSize = config.maxPoolSize
+            minimumIdle = config.minIdle
             connectionTimeout = config.connectionTimeout
             idleTimeout = config.idleTimeout
+            maxLifetime = config.maxLifetime
             driverClassName = "org.postgresql.Driver"
             isAutoCommit = false
             transactionIsolation = "TRANSACTION_REPEATABLE_READ"
