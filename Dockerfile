@@ -14,6 +14,8 @@ WORKDIR /app
 
 COPY --from=build /app/build/install/titlis-api ./titlis-api
 
+ENV JAVA_TOOL_OPTIONS="-Xms64m -Xmx256m -XX:MaxMetaspaceSize=128m -Xss512k -XX:+ExitOnOutOfMemoryError"
+
 EXPOSE 8080 8125/udp
 
 ENTRYPOINT ["./titlis-api/bin/titlis-api"]

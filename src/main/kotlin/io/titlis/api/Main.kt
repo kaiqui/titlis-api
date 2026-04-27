@@ -56,7 +56,7 @@ fun main() {
 fun Application.module() {
     val config = AppConfig.from(environment.config)
 
-    DatabaseFactory.init(config.database)
+    DatabaseFactory.init(config.database, config.auth.appEnv)
 
     val scorecardRepo   = ScorecardRepository()
     val remediationRepo = RemediationRepository()

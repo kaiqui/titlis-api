@@ -40,7 +40,7 @@ object DatabaseFactory {
     private val log = LoggerFactory.getLogger(DatabaseFactory::class.java)
     private lateinit var dataSource: HikariDataSource
 
-    fun init(config: DatabaseConfig) {
+    fun init(config: DatabaseConfig, appEnv: String = "local") {
         val hikariConfig = HikariConfig().apply {
             jdbcUrl = config.url
             username = config.user
@@ -57,6 +57,8 @@ object DatabaseFactory {
         }
         dataSource = HikariDataSource(hikariConfig)
         val database = Database.connect(dataSource)
+
+        if (appEnv == "production") return
 
         // Use dedicated autocommit connections for optional DDL so one failure does not
         // poison the Exposed transaction used for table introspection/migration.
