@@ -58,6 +58,19 @@ class EventRouter(
             apiKeyRepo.updateLastUsedAtAsync(envelope.apiKey)
         }
 
+        dispatchEvent(envelope, tenantId)
+    }
+
+    fun routeHttp(envelope: UdpEnvelope, tenantId: Long, rawApiKey: String) {
+        scope.launch(Dispatchers.IO) {
+            apiKeyRepo.updateLastUsedAtAsync(rawApiKey)
+        }
+        scope.launch(Dispatchers.IO) {
+            dispatchEvent(envelope, tenantId)
+        }
+    }
+
+    private suspend fun dispatchEvent(envelope: UdpEnvelope, tenantId: Long) {
         when (envelope.t) {
             "scorecard_evaluated" -> {
                 val event = json.decodeFromJsonElement<ScorecardEvaluatedEvent>(envelope.data)

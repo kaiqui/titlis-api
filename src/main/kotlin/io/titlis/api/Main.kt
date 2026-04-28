@@ -121,7 +121,7 @@ fun Application.module() {
     scorecardRoutes(scorecardRepo, requestAuthenticator)
     remediationRoutes(remediationRepo, requestAuthenticator)
     sloRoutes(sloRepo, requestAuthenticator)
-    operatorRoutes(sloRepo, apiKeyRepo, requestAuthenticator)
+    operatorRoutes(sloRepo, apiKeyRepo, router, requestAuthenticator)
     aiConfigRoutes(aiConfigRepo, requestAuthenticator)
     aiRoutes(scorecardRepo, aiConfigRepo, config, requestAuthenticator)
     ragRoutes(knowledgeRepo, config.aiService.internalSecret)

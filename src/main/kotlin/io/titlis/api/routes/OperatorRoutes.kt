@@ -15,8 +15,10 @@ import io.ktor.server.routing.routing
 import io.titlis.api.auth.AppPrincipal
 import io.titlis.api.auth.RequestAuthenticator
 import io.titlis.api.auth.protectedProviderNames
+import io.titlis.api.domain.UdpEnvelope
 import io.titlis.api.repository.ApiKeyRepository
 import io.titlis.api.repository.SloRepository
+import io.titlis.api.udp.EventRouter
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -34,11 +36,34 @@ data class MarkChangeFailedRequest(
 fun Application.operatorRoutes(
     sloRepo: SloRepository,
     apiKeyRepo: ApiKeyRepository,
+    eventRouter: EventRouter,
     requestAuthenticator: RequestAuthenticator? = null,
 ) {
     routing {
         // Operator API-key-authenticated endpoints
         route("/v1/operator") {
+            post("/events") {
+                val rawKey = call.request.headers["X-Api-Key"]
+                    ?: return@post call.respond(
+                        HttpStatusCode.Unauthorized,
+                        mapOf("error" to "missing_api_key"),
+                    )
+                val tenantId = apiKeyRepo.resolveByToken(rawKey)
+                    ?: return@post call.respond(
+                        HttpStatusCode.Unauthorized,
+                        mapOf("error" to "invalid_api_key"),
+                    )
+                val envelope = runCatching { call.receive<UdpEnvelope>() }
+                    .getOrElse {
+                        return@post call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "invalid_envelope"),
+                        )
+                    }
+                eventRouter.routeHttp(envelope, tenantId, rawKey)
+                call.respond(HttpStatusCode.Accepted)
+            }
+
             get("/pending-slo-changes") {
                 val tenantId = resolveApiKeyTenant(call, apiKeyRepo)
                     ?: return@get call.respond(
