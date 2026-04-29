@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import org.slf4j.LoggerFactory
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
@@ -17,6 +18,7 @@ import java.time.OffsetDateTime
 import java.time.ZoneOffset
 
 class ScorecardRepository {
+    private val logger = LoggerFactory.getLogger(ScorecardRepository::class.java)
 
     suspend fun upsertScorecard(event: ScorecardEvaluatedEvent, tenantIdHint: Long? = null) = dbQuery {
         val tenantId = chooseTenantId(
@@ -154,37 +156,10 @@ class ScorecardRepository {
             .where { AppScorecards.workloadId eq workloadId }
             .single()[AppScorecards.appScorecardId]
 
-        PillarScores.deleteWhere { PillarScores.appScorecardId eq appScorecardId }
-        event.pillarScores.forEach { ps ->
-            PillarScores.insert {
-                it[PillarScores.appScorecardId] = appScorecardId
-                it[PillarScores.pillar] = ps.pillar.uppercase()
-                it[PillarScores.pillarScore] = ps.score.toBigDecimal()
-                it[PillarScores.passedChecks] = ps.passedChecks
-                it[PillarScores.failedChecks] = ps.failedChecks
-                it[PillarScores.weightedScore] = ps.weightedScore?.toBigDecimal()
-                it[PillarScores.createdAt] = now
-                it[PillarScores.updatedAt] = now
-            }
-        }
+        syncPillarScores(appScorecardId, event, now)
 
         upsertValidationRules(event.validationResults, now)
-        ValidationResults.deleteWhere {
-            ValidationResults.appScorecardId eq appScorecardId
-        }
-        event.validationResults.forEach { validation ->
-            val validationRuleId = resolveValidationRuleId(validation.ruleId)
-            ValidationResults.insert {
-                it[ValidationResults.appScorecardId] = appScorecardId
-                it[ValidationResults.validationRuleId] = validationRuleId
-                it[ValidationResults.rulePassed] = validation.passed
-                it[ValidationResults.resultMessage] = validation.message
-                it[ValidationResults.actualValue] = validation.actualValue
-                it[ValidationResults.evaluatedAt] =
-                    OffsetDateTime.parse(event.evaluatedAt)
-                it[ValidationResults.createdAt] = now
-            }
-        }
+        syncValidationResults(appScorecardId, event, now)
 
         ScorecardScores.insert {
             it[ScorecardScores.workloadId] = workloadId
@@ -204,6 +179,114 @@ class ScorecardRepository {
                     "COMPLIANCE"   -> it[ScorecardScores.complianceScore] = ps.score.toBigDecimal()
                 }
             }
+        }
+    }
+
+    private fun syncPillarScores(
+        appScorecardId: Long,
+        event: ScorecardEvaluatedEvent,
+        now: OffsetDateTime,
+    ) {
+        val existingByPillar = PillarScores
+            .select(PillarScores.pillarScoreId, PillarScores.pillar)
+            .where { PillarScores.appScorecardId eq appScorecardId }
+            .associateBy { row -> row[PillarScores.pillar].toString().uppercase() }
+
+        val incomingPillars = mutableSetOf<String>()
+
+        event.pillarScores.forEach { ps ->
+            val pillar = ps.pillar.uppercase()
+            incomingPillars += pillar
+            val existing = existingByPillar[pillar]
+
+            if (existing == null) {
+                PillarScores.insert {
+                    it[PillarScores.appScorecardId] = appScorecardId
+                    it[PillarScores.pillar] = pillar
+                    it[PillarScores.pillarScore] = ps.score.toBigDecimal()
+                    it[PillarScores.passedChecks] = ps.passedChecks
+                    it[PillarScores.failedChecks] = ps.failedChecks
+                    it[PillarScores.weightedScore] = ps.weightedScore?.toBigDecimal()
+                    it[PillarScores.createdAt] = now
+                    it[PillarScores.updatedAt] = now
+                }
+            } else {
+                PillarScores.update(
+                    { PillarScores.pillarScoreId eq existing[PillarScores.pillarScoreId] }
+                ) {
+                    it[PillarScores.pillar] = pillar
+                    it[PillarScores.pillarScore] = ps.score.toBigDecimal()
+                    it[PillarScores.passedChecks] = ps.passedChecks
+                    it[PillarScores.failedChecks] = ps.failedChecks
+                    it[PillarScores.weightedScore] = ps.weightedScore?.toBigDecimal()
+                    it[PillarScores.updatedAt] = now
+                }
+            }
+        }
+
+        val stalePillars = existingByPillar.keys - incomingPillars
+        if (stalePillars.isNotEmpty()) {
+            logger.warn(
+                "Keeping stale pillar_scores rows because DB role has no DELETE. app_scorecard_id={}, pillars={}",
+                appScorecardId,
+                stalePillars,
+            )
+        }
+    }
+
+    private fun syncValidationResults(
+        appScorecardId: Long,
+        event: ScorecardEvaluatedEvent,
+        now: OffsetDateTime,
+    ) {
+        val existingByRuleId = ValidationResults
+            .select(
+                ValidationResults.validationResultId,
+                ValidationResults.validationRuleId,
+            )
+            .where { ValidationResults.appScorecardId eq appScorecardId }
+            .associateBy { row -> row[ValidationResults.validationRuleId] }
+
+        val incomingRuleIds = mutableSetOf<Long>()
+        val evaluatedAt = OffsetDateTime.parse(event.evaluatedAt)
+
+        event.validationResults.forEach { validation ->
+            val validationRuleId = resolveValidationRuleId(validation.ruleId)
+            incomingRuleIds += validationRuleId
+            val existing = existingByRuleId[validationRuleId]
+
+            if (existing == null) {
+                ValidationResults.insert {
+                    it[ValidationResults.appScorecardId] = appScorecardId
+                    it[ValidationResults.validationRuleId] = validationRuleId
+                    it[ValidationResults.rulePassed] = validation.passed
+                    it[ValidationResults.resultMessage] = validation.message
+                    it[ValidationResults.actualValue] = validation.actualValue
+                    it[ValidationResults.evaluatedAt] = evaluatedAt
+                    it[ValidationResults.createdAt] = now
+                }
+            } else {
+                ValidationResults.update(
+                    {
+                        ValidationResults.validationResultId eq
+                            existing[ValidationResults.validationResultId]
+                    }
+                ) {
+                    it[ValidationResults.rulePassed] = validation.passed
+                    it[ValidationResults.resultMessage] = validation.message
+                    it[ValidationResults.actualValue] = validation.actualValue
+                    it[ValidationResults.evaluatedAt] = evaluatedAt
+                }
+            }
+        }
+
+        val staleRuleIds = existingByRuleId.keys - incomingRuleIds
+        if (staleRuleIds.isNotEmpty()) {
+            logger.warn(
+                "Keeping stale validation_results rows because DB role has no DELETE. app_scorecard_id={}, validation_rule_ids={}",
+                appScorecardId,
+                staleRuleIds,
+            )
         }
     }
 

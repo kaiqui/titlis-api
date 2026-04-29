@@ -89,6 +89,7 @@ fun Application.module() {
         allowMethod(HttpMethod.Patch)
         allowHeader(HttpHeaders.Authorization)
         allowHeader(HttpHeaders.ContentType)
+        allowHeader("X-Titlis-Tenant-Slug")
         allowHeader("X-Dev-Auth")
         allowHeader("X-Dev-Tenant-Id")
         allowHeader("X-Dev-User")

@@ -208,8 +208,8 @@ class AuthRepository(
             ?.toAuthenticatedUser()
     }
 
-    suspend fun resolveFederatedUser(identity: OktaIdentity): AuthenticatedUser? = dbQuery {
-        val tenantId = identity.tenantId ?: return@dbQuery null
+    suspend fun resolveFederatedUser(identity: OktaIdentity, tenantSlugHint: String? = null): AuthenticatedUser? = dbQuery {
+        val tenantId = identity.tenantId ?: resolveTenantIdBySlug(tenantSlugHint) ?: return@dbQuery null
 
         val integrationRow = TenantAuthIntegrations
             .select(
@@ -656,4 +656,13 @@ class AuthRepository(
         .replace(Regex("[^a-z0-9-]+"), "-")
         .replace(Regex("-{2,}"), "-")
         .trim('-')
+
+    private fun resolveTenantIdBySlug(value: String?): Long? {
+        val tenantSlug = value?.let(::normalizeTenantSlug)?.takeIf { it.isNotBlank() } ?: return null
+        return Tenants
+            .select(Tenants.tenantId)
+            .where { (Tenants.slug eq tenantSlug) and (Tenants.isActive eq true) }
+            .singleOrNull()
+            ?.get(Tenants.tenantId)
+    }
 }

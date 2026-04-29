@@ -197,7 +197,7 @@ class RequestAuthenticatorTest {
         }
 
         assertEquals(HttpStatusCode.Unauthorized, response.status)
-        coVerify(exactly = 0) { authRepository.resolveFederatedUser(any()) }
+        coVerify(exactly = 0) { authRepository.resolveFederatedUser(any(), any()) }
     }
 
     @Test
@@ -225,7 +225,7 @@ class RequestAuthenticatorTest {
         )
 
         every { oktaTokenVerifier.verify("okta-token") } returns identity
-        coEvery { authRepository.resolveFederatedUser(identity) } returns user
+        coEvery { authRepository.resolveFederatedUser(identity, any()) } returns user
 
         val authenticator = RequestAuthenticator(
             config = authConfig,
@@ -257,5 +257,66 @@ class RequestAuthenticatorTest {
 
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals("OKTA:42:admin", response.bodyAsText())
+        coVerify(exactly = 1) { authRepository.resolveFederatedUser(identity, null) }
+    }
+
+    @Test
+    fun `passes tenant slug header as federated user hint`() = testApplication {
+        val authConfig = testAuthConfig(authMode = "okta")
+        val authRepository = mockk<AuthRepository>()
+        val oktaTokenVerifier = mockk<OktaTokenVerifier>()
+        val identity = OktaIdentity(
+            subject = "okta-user",
+            email = "user@jeitto.com",
+            tenantId = null,
+            groups = listOf("Jeitto Confia - Viewer"),
+            issuer = "https://example.okta.com",
+        )
+        val user = AuthenticatedUser(
+            id = 7,
+            tenantId = 42,
+            tenantSlug = "jeitto",
+            tenantName = "Jeitto",
+            email = "user@jeitto.com",
+            displayName = "Federated User",
+            role = PlatformRole.VIEWER,
+            authProvider = "okta",
+            onboardingCompleted = true,
+        )
+
+        every { oktaTokenVerifier.verify("okta-token") } returns identity
+        coEvery { authRepository.resolveFederatedUser(identity, "jeitto") } returns user
+
+        val authenticator = RequestAuthenticator(
+            config = authConfig,
+            authRepository = authRepository,
+            localTokenService = testTokenService(authConfig),
+            oktaTokenVerifier = oktaTokenVerifier,
+        )
+
+        application {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true })
+            }
+            install(Authentication) {
+                appAuth(authenticator)
+            }
+            routing {
+                authenticate("app-auth") {
+                    get("/protected") {
+                        val principal = call.principal<AppPrincipal>()
+                        call.respond("${principal?.source}:${principal?.tenantSlug}")
+                    }
+                }
+            }
+        }
+
+        val response = client.get("/protected") {
+            header("Authorization", "Bearer okta-token")
+            header(RequestAuthenticator.TENANT_SLUG_HEADER, "jeitto")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("OKTA:jeitto", response.bodyAsText())
     }
 }

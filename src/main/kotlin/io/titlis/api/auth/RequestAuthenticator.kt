@@ -15,6 +15,9 @@ class RequestAuthenticator(
 ) {
     private val logger = LoggerFactory.getLogger(RequestAuthenticator::class.java)
     private val authMode = AuthMode.from(config.authMode)
+    companion object {
+        const val TENANT_SLUG_HEADER = "X-Titlis-Tenant-Slug"
+    }
 
     suspend fun authenticate(call: ApplicationCall): AppPrincipal? {
         if (isPublicPath(call.request.path())) return null
@@ -38,7 +41,8 @@ class RequestAuthenticator(
         if (authMode == AuthMode.OKTA || authMode == AuthMode.MIXED) {
             val oktaIdentity = oktaTokenVerifier.verify(token) ?: return null
             val role = oktaIdentity.platformRole() ?: return null
-            return authRepository.resolveFederatedUser(oktaIdentity)?.toPrincipal(AuthSource.OKTA, role)
+            val tenantSlugHint = call.request.headers[TENANT_SLUG_HEADER]
+            return authRepository.resolveFederatedUser(oktaIdentity, tenantSlugHint)?.toPrincipal(AuthSource.OKTA, role)
         }
 
         return null
