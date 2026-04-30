@@ -157,17 +157,31 @@ class RequestAuthenticatorTest {
     }
 
     @Test
-    fun `rejects okta token when group claim is missing`() = testApplication {
+    fun `falls back to viewer when okta token has no accepted groups`() = testApplication {
         val authConfig = testAuthConfig(authMode = "okta")
         val authRepository = mockk<AuthRepository>()
         val oktaTokenVerifier = mockk<OktaTokenVerifier>()
-        every { oktaTokenVerifier.verify("okta-token") } returns OktaIdentity(
+        val identity = OktaIdentity(
             subject = "okta-user",
             email = "user@jeitto.com",
             tenantId = 42,
             groups = emptyList(),
             issuer = "https://example.okta.com/oauth2/default",
         )
+        val user = AuthenticatedUser(
+            id = 7,
+            tenantId = 42,
+            tenantSlug = "tenant-42",
+            tenantName = "Tenant 42",
+            email = "user@jeitto.com",
+            displayName = "Federated User",
+            role = PlatformRole.ADMIN,
+            authProvider = "okta",
+            onboardingCompleted = true,
+        )
+
+        every { oktaTokenVerifier.verify("okta-token") } returns identity
+        coEvery { authRepository.resolveFederatedUser(identity, any()) } returns user
 
         val authenticator = RequestAuthenticator(
             config = authConfig,
@@ -186,7 +200,8 @@ class RequestAuthenticatorTest {
             routing {
                 authenticate("app-auth") {
                     get("/protected") {
-                        call.respond("ok")
+                        val principal = call.principal<AppPrincipal>()
+                        call.respond("${principal?.source}:${principal?.tenantId}:${principal?.role?.dbValue}")
                     }
                 }
             }
@@ -196,8 +211,9 @@ class RequestAuthenticatorTest {
             header("Authorization", "Bearer okta-token")
         }
 
-        assertEquals(HttpStatusCode.Unauthorized, response.status)
-        coVerify(exactly = 0) { authRepository.resolveFederatedUser(any(), any()) }
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("OKTA:42:viewer", response.bodyAsText())
+        coVerify(exactly = 1) { authRepository.resolveFederatedUser(identity, null) }
     }
 
     @Test

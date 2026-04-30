@@ -66,7 +66,7 @@ fun AuthenticationConfig.oktaJwtAuth(
         }
         validate { credential ->
             val identity = verifier.payloadToIdentity(credential.payload) ?: return@validate null
-            val role = identity.platformRole() ?: return@validate null
+            val role = platformRoleFromOptionalGroups(identity.groups)
             authRepository.resolveFederatedUser(identity)?.toPrincipal(AuthSource.OKTA, role)
         }
         challenge { _, _ ->

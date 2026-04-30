@@ -40,7 +40,7 @@ class RequestAuthenticator(
 
         if (authMode == AuthMode.OKTA || authMode == AuthMode.MIXED) {
             val oktaIdentity = oktaTokenVerifier.verify(token) ?: return null
-            val role = oktaIdentity.platformRole() ?: return null
+            val role = platformRoleFromOptionalGroups(oktaIdentity.groups)
             val tenantSlugHint = call.request.headers[TENANT_SLUG_HEADER]
             return authRepository.resolveFederatedUser(oktaIdentity, tenantSlugHint)?.toPrincipal(AuthSource.OKTA, role)
         }

@@ -57,6 +57,7 @@ private fun fakeAppConfig(
 
 private fun fakeHttpClient(responseBody: String): HttpClient {
     val httpResponse = mockk<HttpResponse<java.io.InputStream>>()
+    every { httpResponse.statusCode() } returns 200
     every { httpResponse.body() } returns ByteArrayInputStream(responseBody.toByteArray())
     val client = mockk<HttpClient>()
     every { client.send(any(), any<HttpResponse.BodyHandler<java.io.InputStream>>()) } returns httpResponse

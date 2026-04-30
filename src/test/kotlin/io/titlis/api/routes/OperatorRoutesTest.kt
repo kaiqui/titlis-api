@@ -8,18 +8,34 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.server.application.Application
 import io.ktor.server.testing.testApplication
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.titlis.api.repository.ApiKeyRepository
 import io.titlis.api.repository.SloRepository
+import io.titlis.api.udp.EventRouter
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertContains
 
 private const val VALID_API_KEY = "tls_k_valid123"
 private const val TENANT_ID = 7L
+
+private fun Application.configureOperatorRoutesTest(
+    sloRepo: SloRepository,
+    apiKeyRepo: ApiKeyRepository,
+) {
+    val authenticator = testRequestAuthenticator()
+    installTestSecurity(authenticator)
+    operatorRoutes(
+        sloRepo = sloRepo,
+        apiKeyRepo = apiKeyRepo,
+        eventRouter = mockk<EventRouter>(relaxed = true),
+        requestAuthenticator = authenticator,
+    )
+}
 
 class OperatorRoutesGetPendingChangesTest {
 
@@ -43,8 +59,7 @@ class OperatorRoutesGetPendingChangesTest {
         )
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.get("/v1/operator/pending-slo-changes") {
@@ -62,8 +77,7 @@ class OperatorRoutesGetPendingChangesTest {
         val apiKeyRepo = mockk<ApiKeyRepository>()
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.get("/v1/operator/pending-slo-changes")
@@ -78,8 +92,7 @@ class OperatorRoutesGetPendingChangesTest {
         coEvery { apiKeyRepo.resolveByToken(any()) } returns null
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.get("/v1/operator/pending-slo-changes") {
@@ -97,8 +110,7 @@ class OperatorRoutesGetPendingChangesTest {
         coEvery { sloRepo.listPendingChanges(TENANT_ID) } returns emptyList()
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.get("/v1/operator/pending-slo-changes") {
@@ -121,8 +133,7 @@ class OperatorRoutesMarkAppliedTest {
         coEvery { sloRepo.markChangeApplied(changeId, TENANT_ID) } returns true
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.post("/v1/operator/pending-slo-changes/$changeId/applied") {
@@ -142,8 +153,7 @@ class OperatorRoutesMarkAppliedTest {
         coEvery { sloRepo.markChangeApplied(changeId, TENANT_ID) } returns false
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.post("/v1/operator/pending-slo-changes/$changeId/applied") {
@@ -159,8 +169,7 @@ class OperatorRoutesMarkAppliedTest {
         val apiKeyRepo = mockk<ApiKeyRepository>()
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.post("/v1/operator/pending-slo-changes/some-id/applied")
@@ -180,8 +189,7 @@ class OperatorRoutesMarkFailedTest {
         coEvery { sloRepo.markChangeFailed(changeId, "patch rejected by K8s", TENANT_ID) } returns true
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.post("/v1/operator/pending-slo-changes/$changeId/failed") {
@@ -203,8 +211,7 @@ class OperatorRoutesMarkFailedTest {
         coEvery { sloRepo.markChangeFailed(changeId, any(), TENANT_ID) } returns false
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.post("/v1/operator/pending-slo-changes/$changeId/failed") {
@@ -222,8 +229,7 @@ class OperatorRoutesMarkFailedTest {
         val apiKeyRepo = mockk<ApiKeyRepository>()
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.post("/v1/operator/pending-slo-changes/some-id/failed") {
@@ -254,8 +260,7 @@ class OperatorRoutesProposeChangeTest {
         )
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.post("/v1/slo-configs/10/propose-change") {
@@ -277,8 +282,7 @@ class OperatorRoutesProposeChangeTest {
         coEvery { sloRepo.proposeChange(99L, any(), any(), any(), any(), any()) } returns null
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.post("/v1/slo-configs/99/propose-change") {
@@ -298,8 +302,7 @@ class OperatorRoutesProposeChangeTest {
         val apiKeyRepo = mockk<ApiKeyRepository>()
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.post("/v1/slo-configs/10/propose-change") {
@@ -320,8 +323,7 @@ class OperatorRoutesProposeChangeTest {
         val apiKeyRepo = mockk<ApiKeyRepository>()
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.post("/v1/slo-configs/not-a-number/propose-change") {
@@ -341,8 +343,7 @@ class OperatorRoutesProposeChangeTest {
         val apiKeyRepo = mockk<ApiKeyRepository>()
 
         application {
-            installTestSecurity(testRequestAuthenticator())
-            operatorRoutes(sloRepo, apiKeyRepo, testRequestAuthenticator())
+            configureOperatorRoutesTest(sloRepo, apiKeyRepo)
         }
 
         val response = client.post("/v1/slo-configs/10/propose-change") {
