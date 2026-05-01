@@ -14,6 +14,12 @@ data class DatabaseConfig(
     val maxLifetime: Long,
 )
 
+data class DatabaseMigrationConfig(
+    val url: String,
+    val user: String,
+    val password: String,
+)
+
 data class UdpConfig(
     val port: Int,
     val bufferSize: Int,
@@ -44,6 +50,7 @@ data class AiServiceConfig(
 
 data class AppConfig(
     val database: DatabaseConfig,
+    val databaseMigration: DatabaseMigrationConfig,
     val udp: UdpConfig,
     val auth: AuthConfig,
     val corsAllowedOrigins: List<String>,
@@ -104,6 +111,26 @@ data class AppConfig(
                         env = "DB_POOL_MAX_LIFETIME",
                         default = "1800000",
                     ).toLong(),
+                ),
+                databaseMigration = DatabaseMigrationConfig(
+                    url = propertyOrEnv(
+                        config = db,
+                        path = "url",
+                        env = "DATABASE_URL",
+                        default = "jdbc:postgresql://localhost:5432/titlis",
+                    ),
+                    user = propertyOrEnv(
+                        config = db,
+                        path = "migration.user",
+                        env = "DATABASE_MIGRATION_USER",
+                        default = "titlis",
+                    ),
+                    password = propertyOrEnv(
+                        config = db,
+                        path = "migration.password",
+                        env = "DATABASE_MIGRATION_PASSWORD",
+                        default = "titlis",
+                    ),
                 ),
                 udp = UdpConfig(
                     port = propertyOrEnv(

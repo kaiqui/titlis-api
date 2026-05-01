@@ -16,6 +16,7 @@ import io.titlis.api.auth.OktaTokenVerifier
 import io.titlis.api.auth.oktaJwtAuth
 import io.titlis.api.config.AppConfig
 import io.titlis.api.database.DatabaseFactory
+import io.titlis.api.database.DatabaseMigrator
 import io.titlis.api.repository.AiConfigRepository
 import io.titlis.api.repository.ApiKeyRepository
 import io.titlis.api.repository.KnowledgeRepository
@@ -56,7 +57,8 @@ fun main() {
 fun Application.module() {
     val config = AppConfig.from(environment.config)
 
-    DatabaseFactory.init(config.database, config.auth.appEnv)
+    DatabaseMigrator.migrate(config.databaseMigration)
+    DatabaseFactory.init(config.database)
 
     val scorecardRepo   = ScorecardRepository()
     val remediationRepo = RemediationRepository()
@@ -116,7 +118,7 @@ fun Application.module() {
     }
 
     healthRoutes()
-    authRoutes(authRepo, tokenService, requestAuthenticator, apiKeyRepo)
+    authRoutes(authRepo, tokenService, requestAuthenticator, apiKeyRepo, oktaVerifier)
     settingsAuthRoutes(authRepo)
     apiKeyRoutes(apiKeyRepo)
     scorecardRoutes(scorecardRepo, requestAuthenticator)

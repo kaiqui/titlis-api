@@ -22,6 +22,7 @@ val exposedVersion = "0.60.0"
 val hikariVersion = "6.2.1"
 val postgresVersion = "42.7.5"
 val logbackVersion = "1.5.18"
+val flywayVersion = "10.10.0"
 
 dependencies {
     // Ktor server
@@ -43,6 +44,8 @@ dependencies {
     implementation("org.jetbrains.exposed:exposed-json:$exposedVersion")
     implementation("com.zaxxer:HikariCP:$hikariVersion")
     implementation("org.postgresql:postgresql:$postgresVersion")
+    implementation("org.flywaydb:flyway-core:$flywayVersion")
+    implementation("org.flywaydb:flyway-database-postgresql:$flywayVersion")
 
     // Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")

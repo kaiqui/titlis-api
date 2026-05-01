@@ -20,6 +20,8 @@ import io.titlis.api.auth.BootstrapSetupResponse
 import io.titlis.api.auth.InvalidCredentialsException
 import io.titlis.api.auth.LocalLoginRequest
 import io.titlis.api.auth.LocalTokenService
+import io.titlis.api.auth.OktaExchangeRequest
+import io.titlis.api.auth.OktaTokenVerifier
 import io.titlis.api.auth.protectedProviderNames
 import io.titlis.api.auth.RequestAuthenticator
 import io.titlis.api.auth.TenantRegistrationConflictException
@@ -31,6 +33,7 @@ fun Application.authRoutes(
     tokenService: LocalTokenService,
     requestAuthenticator: RequestAuthenticator,
     apiKeyRepo: ApiKeyRepository,
+    oktaTokenVerifier: OktaTokenVerifier,
 ) {
     routing {
         route("/v1/auth") {
@@ -80,6 +83,27 @@ fun Application.authRoutes(
                     )
                 } catch (_: InvalidCredentialsException) {
                     call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "invalid_credentials"))
+                } catch (cause: IllegalArgumentException) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (cause.message ?: "invalid_request")))
+                }
+            }
+
+            post("/okta/exchange") {
+                try {
+                    val request = call.receive<OktaExchangeRequest>()
+                    val identity = oktaTokenVerifier.verifyIdToken(request.idToken)
+                        ?: return@post call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "invalid_okta_id_token"))
+                    val user = repo.resolveFederatedUser(identity, request.tenantSlug)
+                        ?: return@post call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "federated_user_not_found"))
+                    val token = tokenService.issue(user)
+                    call.respond(
+                        AuthSessionResponse(
+                            provider = "local",
+                            accessToken = token.value,
+                            expiresAt = token.expiresAt.toString(),
+                            user = user.toResponse(),
+                        ),
+                    )
                 } catch (cause: IllegalArgumentException) {
                     call.respond(HttpStatusCode.BadRequest, mapOf("error" to (cause.message ?: "invalid_request")))
                 }

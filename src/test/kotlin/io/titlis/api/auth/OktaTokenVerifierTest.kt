@@ -37,12 +37,26 @@ class OktaTokenVerifierTest {
         assertNull(identity?.platformRole())
     }
 
+    @Test
+    fun `payloadToIdentity falls back to subject when email claim is absent`() {
+        val verifier = OktaTokenVerifier(testAuthConfig())
+        val payload = mockPayload(
+            subject = "user@jeitto.com",
+            claimLists = mapOf("group" to listOf("Jeitto Confia - Viewer")),
+        )
+
+        val identity = verifier.payloadToIdentity(payload)
+
+        assertEquals("user@jeitto.com", identity?.email)
+    }
+
     private fun mockPayload(
+        subject: String = "subject-1",
         claimLists: Map<String, List<String>> = emptyMap(),
         claimStrings: Map<String, String> = emptyMap(),
     ): Payload {
         val payload = mockk<Payload>()
-        every { payload.subject } returns "subject-1"
+        every { payload.subject } returns subject
         every { payload.issuer } returns "https://example.okta.com/oauth2/default"
         every { payload.getClaim(any()) } answers {
             val name = firstArg<String>()

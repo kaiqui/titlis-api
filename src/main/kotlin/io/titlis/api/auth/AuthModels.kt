@@ -36,6 +36,12 @@ data class LocalLoginRequest(
 )
 
 @Serializable
+data class OktaExchangeRequest(
+    val idToken: String,
+    val tenantSlug: String? = null,
+)
+
+@Serializable
 data class AuthUserResponse(
     val id: Long,
     val tenantId: Long,
