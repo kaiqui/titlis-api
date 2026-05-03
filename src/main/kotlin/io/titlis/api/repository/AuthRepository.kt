@@ -266,15 +266,23 @@ class AuthRepository(
             .where {
                 (PlatformUsers.tenantId eq tenantId) and
                     (PlatformUsers.email eq email) and
-                    (PlatformUsers.isActive eq true) and
                     PlatformUsers.deletedAt.isNull()
             }
             .singleOrNull()
-            ?: return@dbQuery null
+        if (userRow != null && !userRow[PlatformUsers.isActive]) {
+            return@dbQuery null
+        }
+
+        val resolvedUserRow = userRow ?: provisionFederatedUser(
+            tenantId = tenantId,
+            email = email,
+            displayName = identity.displayName,
+            role = identity.platformRole() ?: PlatformRole.VIEWER,
+        )
 
         val now = OffsetDateTime.now(ZoneOffset.UTC)
         UserAuthIdentities.insert {
-            it[platformUserId] = userRow[PlatformUsers.platformUserId]
+            it[platformUserId] = resolvedUserRow[PlatformUsers.platformUserId]
             it[tenantAuthIntegrationId] = integrationId
             it[providerSubject] = identity.subject
             it[issuerUrl] = identity.issuer
@@ -289,7 +297,7 @@ class AuthRepository(
             it[updatedAt] = now
         }
 
-        userRow.toAuthenticatedUser(authProvider = "okta", onboardingCompleted = true)
+        resolvedUserRow.toAuthenticatedUser(authProvider = "okta", onboardingCompleted = true)
     }
 
     suspend fun listTenantAuthIntegrations(tenantId: Long): List<TenantAuthIntegrationResponse> = dbQuery {
@@ -649,6 +657,34 @@ class AuthRepository(
         authProvider = authProvider,
         onboardingCompleted = onboardingCompleted,
     )
+
+    private fun provisionFederatedUser(
+        tenantId: Long,
+        email: String,
+        displayName: String?,
+        role: PlatformRole,
+    ): ResultRow {
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+        val normalizedName = displayName?.trim()?.takeIf { it.isNotBlank() }
+
+        val createdUserId = PlatformUsers.insert {
+            it[PlatformUsers.tenantId] = tenantId
+            it[PlatformUsers.email] = email
+            it[PlatformUsers.displayName] = normalizedName
+            it[PlatformUsers.passwordHash] = null
+            it[PlatformUsers.platformRole] = role.dbValue
+            it[PlatformUsers.isActive] = true
+            it[PlatformUsers.isBreakGlass] = false
+            it[PlatformUsers.lastLoginAt] = now
+            it[PlatformUsers.createdAt] = now
+            it[PlatformUsers.updatedAt] = now
+        } get PlatformUsers.platformUserId
+
+        return baseUserQuery()
+            .andWhere { PlatformUsers.platformUserId eq createdUserId }
+            .singleOrNull()
+            ?: error("Falha ao carregar usuário federado provisionado")
+    }
 
     private fun normalizeTenantSlug(value: String): String = value
         .trim()

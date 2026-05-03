@@ -164,6 +164,7 @@ class RequestAuthenticatorTest {
         val identity = OktaIdentity(
             subject = "okta-user",
             email = "user@jeitto.com",
+            displayName = "Federated User",
             tenantId = 42,
             groups = emptyList(),
             issuer = "https://example.okta.com/oauth2/default",
@@ -224,6 +225,7 @@ class RequestAuthenticatorTest {
         val identity = OktaIdentity(
             subject = "okta-user",
             email = "user@jeitto.com",
+            displayName = "Federated User",
             tenantId = 42,
             groups = listOf("Jeitto Confia - Admin"),
             issuer = "https://example.okta.com/oauth2/default",
@@ -284,6 +286,7 @@ class RequestAuthenticatorTest {
         val identity = OktaIdentity(
             subject = "okta-user",
             email = "user@jeitto.com",
+            displayName = "Federated User",
             tenantId = null,
             groups = listOf("Jeitto Confia - Viewer"),
             issuer = "https://example.okta.com",

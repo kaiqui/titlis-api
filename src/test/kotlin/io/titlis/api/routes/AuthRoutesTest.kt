@@ -30,6 +30,7 @@ class AuthRoutesTest {
         val identity = OktaIdentity(
             subject = "00u123",
             email = "user@jeitto.com",
+            displayName = "User",
             tenantId = null,
             groups = listOf("Jeitto Confia - Viewer"),
             issuer = "https://jeitto.okta.com",

@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit
 data class OktaIdentity(
     val subject: String,
     val email: String?,
+    val displayName: String?,
     val tenantId: Long?,
     val groups: List<String>,
     val issuer: String,
@@ -54,6 +55,7 @@ class OktaTokenVerifier(
     private fun Payload.toIdentity(): OktaIdentity = OktaIdentity(
         subject = subject,
         email = extractEmail(),
+        displayName = extractDisplayName(),
         tenantId = getClaim("titlis_tenant_id")?.asString()?.toLongOrNull()
             ?: getClaim("titlis_tenant_id")?.asLong(),
         groups = extractGroups(),
@@ -87,6 +89,15 @@ class OktaTokenVerifier(
                 ?.let { return listOf(it) }
         }
         return emptyList()
+    }
+
+    private fun Payload.extractDisplayName(): String? {
+        val candidateClaims = listOf("name", "given_name", "preferred_username", "email")
+        for (claimName in candidateClaims) {
+            val value = getClaim(claimName)?.asString()?.trim()
+            if (!value.isNullOrBlank()) return value
+        }
+        return null
     }
 
     private fun normalizeIssuer(value: String): String = value
