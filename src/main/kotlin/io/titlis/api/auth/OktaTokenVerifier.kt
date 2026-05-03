@@ -25,7 +25,7 @@ class OktaTokenVerifier(
     private val normalizedIssuer = config.oktaIssuer?.let(::normalizeIssuer)
 
     private val jwkProvider = normalizedIssuer?.let { issuer ->
-        JwkProviderBuilder(URI.create("${issuer.trimEnd('/')}/v1/keys").toURL())
+        JwkProviderBuilder(URI.create(buildJwksUri(issuer)).toURL())
             .cached(10, 24, TimeUnit.HOURS)
             .rateLimited(10, 1, TimeUnit.MINUTES)
             .build()
@@ -94,6 +94,15 @@ class OktaTokenVerifier(
         .removeSuffix("/.well-known/openid-configuration")
         .removeSuffix("/.well-known/oauth-authorization-server")
         .trimEnd('/')
+
+    internal fun buildJwksUri(issuer: String): String {
+        val normalized = issuer.trim().trimEnd('/')
+        val uri = URI.create(normalized)
+        val path = uri.path?.trimEnd('/').orEmpty()
+
+        val jwksPath = if (path.isBlank()) "/oauth2/v1/keys" else "$path/v1/keys"
+        return URI(uri.scheme, uri.authority, jwksPath, null, null).toString()
+    }
 
     private fun verifyWithAudience(token: String, audience: String): OktaIdentity? {
         val issuer = normalizedIssuer ?: return null

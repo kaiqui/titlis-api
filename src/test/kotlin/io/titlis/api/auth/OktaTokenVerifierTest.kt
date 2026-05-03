@@ -5,6 +5,7 @@ import com.auth0.jwt.interfaces.Payload
 import io.mockk.every
 import io.mockk.mockk
 import io.titlis.api.routes.testAuthConfig
+import io.titlis.api.config.AuthConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -48,6 +49,24 @@ class OktaTokenVerifierTest {
         val identity = verifier.payloadToIdentity(payload)
 
         assertEquals("user@jeitto.com", identity?.email)
+    }
+
+    @Test
+    fun `buildJwksUri uses oauth2 path for org authorization server issuer`() {
+        val verifier = OktaTokenVerifier(testAuthConfig(oktaIssuer = "https://jeitto.okta.com"))
+
+        val jwksUri = verifier.buildJwksUri("https://jeitto.okta.com")
+
+        assertEquals("https://jeitto.okta.com/oauth2/v1/keys", jwksUri)
+    }
+
+    @Test
+    fun `buildJwksUri appends v1 keys for custom authorization server issuer`() {
+        val verifier = OktaTokenVerifier(testAuthConfig(oktaIssuer = "https://jeitto.okta.com/oauth2/default"))
+
+        val jwksUri = verifier.buildJwksUri("https://jeitto.okta.com/oauth2/default")
+
+        assertEquals("https://jeitto.okta.com/oauth2/default/v1/keys", jwksUri)
     }
 
     private fun mockPayload(
