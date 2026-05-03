@@ -115,9 +115,14 @@ data class AppConfig(
                 databaseMigration = DatabaseMigrationConfig(
                     url = propertyOrEnv(
                         config = db,
-                        path = "url",
-                        env = "DATABASE_URL",
-                        default = "jdbc:postgresql://localhost:5432/titlis",
+                        path = "migration.url",
+                        env = "DATABASE_MIGRATION_URL",
+                        default = propertyOrEnv(
+                            config = db,
+                            path = "url",
+                            env = "DATABASE_URL",
+                            default = "jdbc:postgresql://localhost:5432/titlis",
+                        ),
                     ),
                     user = propertyOrEnv(
                         config = db,

@@ -8,8 +8,11 @@ import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.plugins.cors.routing.*
+import io.ktor.server.plugins.calllogging.*
+import io.ktor.server.request.*
 import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.response.*
+import org.slf4j.event.Level
 import io.titlis.api.auth.appAuth
 import io.titlis.api.auth.LocalTokenService
 import io.titlis.api.auth.OktaTokenVerifier
@@ -77,6 +80,14 @@ fun Application.module() {
     val router    = EventRouter(scorecardRepo, remediationRepo, sloRepo, metricsRepo, apiKeyRepo, scope)
     val udpServer = UdpServer(config.udp, router)
     udpServer.start(scope)
+
+    install(CallLogging) {
+        level = Level.INFO
+        mdc("http.method") { it.request.httpMethod.value }
+        mdc("http.path") { it.request.uri.substringBefore("?") }
+        mdc("http.status") { it.response.status()?.value?.toString() ?: "unknown" }
+        filter { !it.request.uri.startsWith("/health") && !it.request.uri.startsWith("/ready") }
+    }
 
     install(CORS) {
         config.corsAllowedOrigins.forEach { origin ->

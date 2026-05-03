@@ -1,9 +1,10 @@
 <configuration>
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
-        </encoder>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder"/>
     </appender>
+
+    <logger name="io.netty" level="WARN"/>
+    <logger name="org.jetbrains.exposed" level="WARN"/>
 
     <root level="INFO">
         <appender-ref ref="STDOUT" />

@@ -9,13 +9,17 @@ object DatabaseMigrator {
 
     fun migrate(config: DatabaseMigrationConfig) {
         log.info("Applying database migrations (user: {})", config.user)
-        val result = Flyway.configure()
-            .dataSource(config.url, config.user, config.password)
-            .locations("classpath:db/migration")
-            .validateOnMigrate(true)
-            .load()
-            .migrate()
-        log.info("Migrations complete: {} applied, target schema version: {}",
-            result.migrationsExecuted, result.targetSchemaVersion)
+        try {
+            val result = Flyway.configure()
+                .dataSource(config.url, config.user, config.password)
+                .locations("classpath:db/migration")
+                .validateOnMigrate(true)
+                .load()
+                .migrate()
+            log.info("Migrations complete: {} applied, target schema version: {}",
+                result.migrationsExecuted, result.targetSchemaVersion)
+        } catch (e: Exception) {
+            log.error("Database migration failed — app will continue but schema may be stale", e)
+        }
     }
 }
