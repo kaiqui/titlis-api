@@ -22,14 +22,20 @@ import io.titlis.api.database.DatabaseFactory
 import io.titlis.api.database.DatabaseMigrator
 import io.titlis.api.repository.AiConfigRepository
 import io.titlis.api.repository.ApiKeyRepository
+import io.titlis.api.repository.CampaignRepository
 import io.titlis.api.repository.KnowledgeRepository
 import io.titlis.api.repository.AuthRepository
 import io.titlis.api.repository.MetricsRepository
 import io.titlis.api.repository.RemediationRepository
+import io.titlis.api.repository.ScoreConfigRepository
 import io.titlis.api.repository.ScorecardRepository
 import io.titlis.api.repository.SloRepository
+import io.titlis.api.repository.TagRepository
 import io.titlis.api.auth.PasswordHasher
 import io.titlis.api.auth.RequestAuthenticator
+import io.titlis.api.config.InsightsClient
+import io.titlis.api.config.PrbotClient
+import io.titlis.api.config.ScoreopsClient
 import io.titlis.api.routes.aiConfigRoutes
 import io.titlis.api.routes.aiRoutes
 import io.titlis.api.routes.internalAiRoutes
@@ -40,7 +46,16 @@ import io.titlis.api.routes.healthRoutes
 import io.titlis.api.routes.remediationRoutes
 import io.titlis.api.routes.scorecardRoutes
 import io.titlis.api.routes.settingsAuthRoutes
+import io.titlis.api.routes.settingsScoreConfigRoutes
+import io.titlis.api.routes.settingsTagsRoutes
+import io.titlis.api.routes.settingsTagPoliciesRoutes
+import io.titlis.api.routes.bulkPrCampaignRoutes
+import io.titlis.api.routes.internalPrbotRoutes
+import io.titlis.api.routes.internalScorecardRoutes
 import io.titlis.api.routes.operatorRoutes
+import io.titlis.api.routes.operatorScoringRoutes
+import io.titlis.api.routes.settingsInsightsRoutes
+import io.titlis.api.routes.settingsPrbotRoutes
 import io.titlis.api.routes.sloRoutes
 import io.titlis.api.udp.EventRouter
 import io.titlis.api.udp.UdpServer
@@ -63,21 +78,27 @@ fun Application.module() {
     DatabaseMigrator.migrate(config.databaseMigration)
     DatabaseFactory.init(config.database)
 
-    val scorecardRepo   = ScorecardRepository()
-    val remediationRepo = RemediationRepository()
-    val sloRepo         = SloRepository()
-    val metricsRepo     = MetricsRepository()
-    val apiKeyRepo      = ApiKeyRepository()
-    val aiConfigRepo    = AiConfigRepository()
-    val knowledgeRepo   = KnowledgeRepository()
-    val passwordHasher  = PasswordHasher()
-    val authRepo        = AuthRepository(passwordHasher)
+    val scorecardRepo    = ScorecardRepository()
+    val remediationRepo  = RemediationRepository()
+    val sloRepo          = SloRepository()
+    val metricsRepo      = MetricsRepository()
+    val apiKeyRepo       = ApiKeyRepository()
+    val aiConfigRepo     = AiConfigRepository()
+    val knowledgeRepo    = KnowledgeRepository()
+    val scoreConfigRepo  = ScoreConfigRepository()
+    val tagRepo          = TagRepository()
+    val campaignRepo     = CampaignRepository()
+    val passwordHasher   = PasswordHasher()
+    val authRepo         = AuthRepository(passwordHasher)
+    val scoreopsClient   = ScoreopsClient(config.scoreops.url, config.scoreops.secret)
+    val prbotClient      = PrbotClient(config.prbot.url, config.prbot.secret)
+    val insightsClient   = InsightsClient(config.insights.url, config.insights.secret)
     val tokenService    = LocalTokenService(config.auth)
     val oktaVerifier    = OktaTokenVerifier(config.auth)
     val requestAuthenticator = RequestAuthenticator(config.auth, authRepo, tokenService, oktaVerifier)
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val router    = EventRouter(scorecardRepo, remediationRepo, sloRepo, metricsRepo, apiKeyRepo, scope)
+    val router    = EventRouter(scorecardRepo, remediationRepo, sloRepo, metricsRepo, apiKeyRepo, scope, campaignRepo)
     val udpServer = UdpServer(config.udp, router)
     udpServer.start(scope)
 
@@ -111,7 +132,7 @@ fun Application.module() {
     }
 
     install(ContentNegotiation) {
-        json(Json { ignoreUnknownKeys = true; prettyPrint = false })
+        json(Json { ignoreUnknownKeys = true; prettyPrint = false; coerceInputValues = true })
     }
 
     install(Authentication) {
@@ -120,7 +141,9 @@ fun Application.module() {
     }
 
     install(StatusPages) {
+        val log = org.slf4j.LoggerFactory.getLogger("StatusPages")
         exception<Throwable> { call, cause ->
+            log.error("Unhandled exception on ${call.request.httpMethod.value} ${call.request.path()}", cause)
             call.respond(
                 io.ktor.http.HttpStatusCode.InternalServerError,
                 mapOf("error" to cause.message)
@@ -140,4 +163,13 @@ fun Application.module() {
     aiRoutes(scorecardRepo, aiConfigRepo, config, requestAuthenticator)
     ragRoutes(knowledgeRepo, config.aiService.internalSecret)
     internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, config.aiService.internalSecret)
+    settingsScoreConfigRoutes(scoreopsClient, scoreConfigRepo, requestAuthenticator)
+    settingsTagsRoutes(tagRepo)
+    settingsTagPoliciesRoutes(scoreopsClient, requestAuthenticator)
+    operatorScoringRoutes(scoreopsClient, apiKeyRepo, tagRepo, scope)
+    bulkPrCampaignRoutes(campaignRepo, prbotClient)
+    settingsPrbotRoutes(prbotClient)
+    settingsInsightsRoutes(insightsClient)
+    internalPrbotRoutes(scorecardRepo, config.prbot.secret)
+    internalScorecardRoutes(scorecardRepo, remediationRepo, config.scoreops.secret)
 }
