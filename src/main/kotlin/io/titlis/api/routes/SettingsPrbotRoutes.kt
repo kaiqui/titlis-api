@@ -18,14 +18,14 @@ fun Application.settingsPrbotRoutes(
         authenticate(*protectedProviderNames("app-auth", "okta-jwt")) {
             get("/v1/settings/auto-remediation") {
                 val principal = call.principal<AppPrincipal>() ?: return@get call.respond(HttpStatusCode.Unauthorized)
-                val (status, body) = prbotClient.proxy("GET", "/v1/auto-remediation-policies?tenant_id=${principal.tenantId}", null)
+                val (status, body) = prbotClient.proxy("GET", "/v1/tenants/${principal.tenantId}/policies", null)
                 call.respond(HttpStatusCode.fromValue(status), body)
             }
 
             put("/v1/settings/auto-remediation") {
-                call.requireAdminPrincipal() ?: return@put
+                val principal = call.requireAdminPrincipal() ?: return@put
                 val reqBody = call.receiveText()
-                val (status, body) = prbotClient.proxy("PUT", "/v1/auto-remediation-policies", reqBody)
+                val (status, body) = prbotClient.proxy("PUT", "/v1/tenants/${principal.tenantId}/policies", reqBody)
                 call.respond(HttpStatusCode.fromValue(status), body)
             }
 
