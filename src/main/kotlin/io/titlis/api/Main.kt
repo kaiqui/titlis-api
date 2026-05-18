@@ -159,7 +159,7 @@ fun Application.module() {
     remediationRoutes(remediationRepo, requestAuthenticator)
     sloRoutes(sloRepo, requestAuthenticator)
     operatorRoutes(sloRepo, apiKeyRepo, router, requestAuthenticator)
-    aiConfigRoutes(aiConfigRepo, requestAuthenticator)
+    aiConfigRoutes(aiConfigRepo, prbotClient, requestAuthenticator)
     aiRoutes(scorecardRepo, aiConfigRepo, config, requestAuthenticator)
     ragRoutes(knowledgeRepo, config.aiService.internalSecret)
     internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, config.aiService.internalSecret)
@@ -170,6 +170,6 @@ fun Application.module() {
     bulkPrCampaignRoutes(campaignRepo, prbotClient)
     settingsPrbotRoutes(prbotClient)
     settingsInsightsRoutes(insightsClient)
-    internalPrbotRoutes(scorecardRepo, config.prbot.secret)
+    internalPrbotRoutes(scorecardRepo, aiConfigRepo, config.prbot.secret)
     internalScorecardRoutes(scorecardRepo, remediationRepo, config.scoreops.secret)
 }

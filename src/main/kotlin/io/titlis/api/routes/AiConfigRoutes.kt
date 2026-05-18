@@ -12,6 +12,8 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import io.titlis.api.auth.AppPrincipal
 import io.titlis.api.auth.RequestAuthenticator
 import io.titlis.api.auth.protectedProviderNames
@@ -49,6 +51,7 @@ data class AiConfigResponse(
 
 fun Application.aiConfigRoutes(
     aiConfigRepo: AiConfigRepository,
+    prbotClient: io.titlis.api.config.PrbotClient? = null,
     requestAuthenticator: RequestAuthenticator? = null,
 ) {
     routing {
@@ -92,6 +95,9 @@ fun Application.aiConfigRoutes(
                             mapOf("error" to "api_key_required_for_first_setup"),
                         )
 
+                    val githubTokenChanged = req.githubToken != null &&
+                        req.githubToken != existing?.githubTokenEnc
+
                     val config = aiConfigRepo.upsert(
                         tenantId          = principal.tenantId,
                         provider          = req.provider,
@@ -101,6 +107,21 @@ fun Application.aiConfigRoutes(
                         githubBaseBranch  = req.githubBaseBranch,
                         monthlyTokenBudget = req.monthlyTokenBudget,
                     )
+
+                    // Fire-and-forget: notify prbot so it can run the initial scan,
+                    // create the default policy and register the Temporal schedule.
+                    if (githubTokenChanged && prbotClient != null) {
+                        launch(Dispatchers.IO) {
+                            runCatching {
+                                prbotClient.proxy(
+                                    "POST",
+                                    "/v1/tenants/${principal.tenantId}/github-configured",
+                                    null,
+                                )
+                            }
+                        }
+                    }
+
                     call.respond(HttpStatusCode.OK, config.toResponse())
                 }
 
