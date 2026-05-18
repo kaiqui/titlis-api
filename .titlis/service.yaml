@@ -15,8 +15,8 @@ spec:
     layout: folder_per_env
     base_branch: main
     paths:
-      dev: k8s/preprod/minikube-preprod.yaml
-      prd: k8s/preprod/minikube-preprod.yaml
+      dev: manifest/kubernetes/main/deploy.yaml
+      prd: manifest/kubernetes/main/deploy.yaml
     pipeline_watcher: argocd
   remediation:
     enabled: true
