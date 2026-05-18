@@ -124,6 +124,7 @@ class AiConfigRoutesPutTest {
     fun `PUT ai-config creates config and returns 200`() = testApplication {
         val repo = mockk<AiConfigRepository>()
         val authenticator = testRequestAuthenticator()
+        coEvery { repo.getByTenant(1L) } returns null
         coEvery {
             repo.upsert(
                 tenantId = 1L,
@@ -156,9 +157,67 @@ class AiConfigRoutesPutTest {
     }
 
     @Test
+    fun `PUT ai-config without apiKey keeps existing key`() = testApplication {
+        val repo = mockk<AiConfigRepository>()
+        val authenticator = testRequestAuthenticator()
+        coEvery { repo.getByTenant(1L) } returns SAMPLE_RECORD
+        coEvery {
+            repo.upsert(
+                tenantId = 1L,
+                provider = "openai",
+                model = "gpt-4o",
+                apiKeyEnc = "sk-test-key",
+                githubTokenEnc = "ghp_new",
+                githubBaseBranch = "main",
+                monthlyTokenBudget = null,
+            )
+        } returns SAMPLE_RECORD.copy(githubTokenEnc = "ghp_new")
+
+        application {
+            installTestSecurity(authenticator)
+            aiConfigRoutes(repo, authenticator)
+        }
+
+        val response = client.put("/v1/settings/ai-config") {
+            header("X-Dev-Auth", "true")
+            header("X-Dev-Tenant-Id", "1")
+            header("X-Dev-Roles", "titlis.admin")
+            contentType(ContentType.Application.Json)
+            setBody("""{"provider":"openai","model":"gpt-4o","githubToken":"ghp_new"}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        coVerify(exactly = 1) { repo.upsert(1L, "openai", "gpt-4o", "sk-test-key", "ghp_new", "main", null) }
+    }
+
+    @Test
+    fun `PUT ai-config without apiKey on first setup returns 400`() = testApplication {
+        val repo = mockk<AiConfigRepository>()
+        val authenticator = testRequestAuthenticator()
+        coEvery { repo.getByTenant(1L) } returns null
+
+        application {
+            installTestSecurity(authenticator)
+            aiConfigRoutes(repo, authenticator)
+        }
+
+        val response = client.put("/v1/settings/ai-config") {
+            header("X-Dev-Auth", "true")
+            header("X-Dev-Tenant-Id", "1")
+            header("X-Dev-Roles", "titlis.admin")
+            contentType(ContentType.Application.Json)
+            setBody("""{"provider":"openai","model":"gpt-4o"}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertContains(response.bodyAsText(), "api_key_required_for_first_setup")
+    }
+
+    @Test
     fun `PUT ai-config returns 400 for unsupported provider`() = testApplication {
         val repo = mockk<AiConfigRepository>()
         val authenticator = testRequestAuthenticator()
+        coEvery { repo.getByTenant(1L) } returns null
 
         application {
             installTestSecurity(authenticator)
@@ -181,6 +240,7 @@ class AiConfigRoutesPutTest {
     fun `PUT ai-config returns 400 for blank model`() = testApplication {
         val repo = mockk<AiConfigRepository>()
         val authenticator = testRequestAuthenticator()
+        coEvery { repo.getByTenant(1L) } returns null
 
         application {
             installTestSecurity(authenticator)

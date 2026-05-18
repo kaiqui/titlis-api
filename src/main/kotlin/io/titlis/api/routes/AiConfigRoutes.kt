@@ -28,7 +28,7 @@ import kotlinx.serialization.json.put
 data class UpsertAiConfigRequest(
     val provider: String,
     val model: String,
-    val apiKey: String,
+    val apiKey: String? = null,
     val githubToken: String? = null,
     val githubBaseBranch: String = "main",
     val monthlyTokenBudget: Int? = null,
@@ -84,11 +84,19 @@ fun Application.aiConfigRoutes(
                         )
                     }
 
+                    val existing = aiConfigRepo.getByTenant(principal.tenantId)
+                    val resolvedApiKey = req.apiKey
+                        ?: existing?.apiKeyEnc
+                        ?: return@put call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "api_key_required_for_first_setup"),
+                        )
+
                     val config = aiConfigRepo.upsert(
                         tenantId          = principal.tenantId,
                         provider          = req.provider,
                         model             = req.model,
-                        apiKeyEnc         = req.apiKey,
+                        apiKeyEnc         = resolvedApiKey,
                         githubTokenEnc    = req.githubToken,
                         githubBaseBranch  = req.githubBaseBranch,
                         monthlyTokenBudget = req.monthlyTokenBudget,
