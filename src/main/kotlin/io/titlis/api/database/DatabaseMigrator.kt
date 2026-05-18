@@ -10,12 +10,15 @@ object DatabaseMigrator {
     fun migrate(config: DatabaseMigrationConfig) {
         log.info("Applying database migrations (user: {})", config.user)
         try {
-            val result = Flyway.configure()
+            val flyway = Flyway.configure()
                 .dataSource(config.url, config.user, config.password)
                 .locations("classpath:db/migration")
+                .baselineOnMigrate(true)
+                .baselineVersion("1")
                 .validateOnMigrate(true)
                 .load()
-                .migrate()
+            flyway.repair()
+            val result = flyway.migrate()
             log.info("Migrations complete: {} applied, target schema version: {}",
                 result.migrationsExecuted, result.targetSchemaVersion)
         } catch (e: Exception) {

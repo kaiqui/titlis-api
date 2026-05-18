@@ -9,16 +9,17 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE SCHEMA IF NOT EXISTS titlis_ai;
 
-GRANT USAGE ON SCHEMA titlis_ai TO titlis_app;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_ai
-    GRANT SELECT, INSERT, UPDATE ON TABLES TO titlis_app;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_ai
-    GRANT USAGE ON SEQUENCES TO titlis_app;
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'titlis_app') THEN
+    EXECUTE 'GRANT USAGE ON SCHEMA titlis_ai TO titlis_app';
+    EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_ai GRANT SELECT, INSERT, UPDATE ON TABLES TO titlis_app';
+    EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_ai GRANT USAGE ON SEQUENCES TO titlis_app';
+  END IF;
+END $$;
 
 -- Configuração de provider LLM e token GitHub por tenant
-CREATE TABLE titlis_oltp.tenant_ai_configs (
+CREATE TABLE IF NOT EXISTS titlis_oltp.tenant_ai_configs (
     tenant_id            BIGINT      NOT NULL PRIMARY KEY REFERENCES titlis_oltp.tenants(tenant_id) ON DELETE CASCADE,
     provider             TEXT        NOT NULL,
     model                TEXT        NOT NULL,
@@ -41,7 +42,7 @@ COMMENT ON COLUMN titlis_oltp.tenant_ai_configs.github_token_enc IS 'GitHub toke
 -- Base de conhecimento vetorial para RAG
 -- Chunks globais (tenant_id IS NULL) são visíveis a todos os tenants;
 -- chunks de tenant (tenant_id NOT NULL) são privados.
-CREATE TABLE titlis_ai.knowledge_chunks (
+CREATE TABLE IF NOT EXISTS titlis_ai.knowledge_chunks (
     chunk_id    UUID         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
     tenant_id   BIGINT       REFERENCES titlis_oltp.tenants(tenant_id) ON DELETE CASCADE,
     source_type TEXT         NOT NULL,
@@ -56,13 +57,13 @@ COMMENT ON TABLE  titlis_ai.knowledge_chunks           IS 'Embeddings de texto p
 COMMENT ON COLUMN titlis_ai.knowledge_chunks.tenant_id IS 'NULL = chunk global visível a todos; NOT NULL = chunk privado do tenant';
 COMMENT ON COLUMN titlis_ai.knowledge_chunks.embedding IS 'Vetor dimensão 1536 (text-embedding-3-small)';
 
-CREATE INDEX idx_knowledge_chunks_tenant
+CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_tenant
     ON titlis_ai.knowledge_chunks (tenant_id);
 
-CREATE UNIQUE INDEX uq_knowledge_chunks_global_src
+CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_chunks_global_src
     ON titlis_ai.knowledge_chunks (source_type, source_id)
     WHERE tenant_id IS NULL;
 
-CREATE UNIQUE INDEX uq_knowledge_chunks_tenant_src
+CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_chunks_tenant_src
     ON titlis_ai.knowledge_chunks (tenant_id, source_type, source_id)
     WHERE tenant_id IS NOT NULL;

@@ -35,6 +35,7 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.time.Duration
 
 @Serializable
 data class AgentChatRequest(
@@ -67,6 +68,11 @@ data class ConfirmRemediationRequest(
 )
 
 @Serializable
+data class SetManifestPathRequest(
+    val manifestPath: String,
+)
+
+@Serializable
 data class ExplainFindingRequest(
     val pillar: String,
     val severity: String,
@@ -82,7 +88,10 @@ fun Application.aiRoutes(
     aiConfigRepo: AiConfigRepository,
     appConfig: AppConfig,
     requestAuthenticator: RequestAuthenticator? = null,
-    httpClient: HttpClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build(),
+    httpClient: HttpClient = HttpClient.newBuilder()
+        .version(HttpClient.Version.HTTP_1_1)
+        .connectTimeout(Duration.ofSeconds(10))
+        .build(),
 ) {
 
     routing {
@@ -143,6 +152,33 @@ fun Application.aiRoutes(
 
                     val aiRequest = HttpRequest.newBuilder()
                         .uri(URI.create("${appConfig.aiService.url}/v1/remediate/$threadId/confirm"))
+                        .header("Content-Type", "application/json")
+                        .header("X-Internal-Secret", appConfig.aiService.internalSecret)
+                        .POST(HttpRequest.BodyPublishers.ofString(aiPayload))
+                        .build()
+
+                    call.response.headers.append("Cache-Control", "no-cache")
+                    call.response.headers.append("X-Accel-Buffering", "no")
+                    call.respondBytesWriter(contentType = ContentType.parse("text/event-stream")) {
+                        withContext(Dispatchers.IO) { proxyAiSse(this@respondBytesWriter, httpClient, aiRequest) }
+                    }
+                }
+
+                post("/remediate/{threadId}/set-path") {
+                    call.requireRole() ?: return@post
+                    val threadId = call.parameters["threadId"]
+                        ?: return@post call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "threadId_required"),
+                        )
+                    val body = call.receive<SetManifestPathRequest>()
+
+                    val aiPayload = buildJsonObject {
+                        put("manifest_path", body.manifestPath)
+                    }.toString()
+
+                    val aiRequest = HttpRequest.newBuilder()
+                        .uri(URI.create("${appConfig.aiService.url}/v1/remediate/$threadId/set-path"))
                         .header("Content-Type", "application/json")
                         .header("X-Internal-Secret", appConfig.aiService.internalSecret)
                         .POST(HttpRequest.BodyPublishers.ofString(aiPayload))

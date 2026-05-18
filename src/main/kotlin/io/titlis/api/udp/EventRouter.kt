@@ -2,6 +2,7 @@ package io.titlis.api.udp
 
 import io.titlis.api.domain.*
 import io.titlis.api.repository.ApiKeyRepository
+import io.titlis.api.repository.CampaignRepository
 import io.titlis.api.repository.MetricsRepository
 import io.titlis.api.repository.RemediationRepository
 import io.titlis.api.repository.ScorecardRepository
@@ -9,6 +10,7 @@ import io.titlis.api.repository.SloRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
 import org.slf4j.LoggerFactory
@@ -20,6 +22,7 @@ class EventRouter(
     private val metricsRepo: MetricsRepository,
     private val apiKeyRepo: ApiKeyRepository,
     private val scope: CoroutineScope,
+    private val campaignRepo: CampaignRepository,
 ) {
     private val logger = LoggerFactory.getLogger(EventRouter::class.java)
     private val json = Json { ignoreUnknownKeys = true }
@@ -98,6 +101,35 @@ class EventRouter(
             "resource_metrics" -> {
                 val event = json.decodeFromJsonElement<ResourceMetricsEvent>(envelope.data)
                 metricsRepo.insertResourceMetrics(event, tenantId)
+            }
+            "namespace_exclusions_sync" -> {
+                val event = json.decodeFromJsonElement<NamespaceExclusionsSyncEvent>(envelope.data)
+                scorecardRepo.syncNamespaceExclusions(event, tenantId)
+            }
+            "rule_failed" -> {
+                val event = json.decodeFromJsonElement<RuleFailedEvent>(envelope.data)
+                logger.info("Rule failed event: rule=${event.ruleId} workload=${event.workloadId} tenant=$tenantId")
+                // prbot picks up via GET /v1/internal/prbot/findings; no-op here for now
+            }
+            "campaign_completed" -> {
+                val event = json.decodeFromJsonElement<CampaignCompletedEvent>(envelope.data)
+                campaignRepo.updateStatus(
+                    id = event.campaignId,
+                    tenantId = tenantId,
+                    status = event.status,
+                    succeededItems = event.succeededItems,
+                    failedItems = event.failedItems,
+                    skippedItems = event.skippedItems,
+                )
+                campaignRepo.appendEvent(event.campaignId, tenantId, "campaign_completed", json.encodeToString(event))
+            }
+            "discovery_completed" -> {
+                val event = json.decodeFromJsonElement<DiscoveryCompletedEvent>(envelope.data)
+                logger.info("Discovery completed: rule=${event.ruleId} findings=${event.totalFindings} campaigns=${event.campaignsStarted} tenant=$tenantId")
+            }
+            "finding_opened" -> {
+                val event = json.decodeFromJsonElement<FindingOpenedEvent>(envelope.data)
+                logger.info("Finding opened: rule=${event.ruleId} workload=${event.workloadId} tenant=$tenantId")
             }
             else -> logger.warn("Unknown event type: ${envelope.t}")
         }

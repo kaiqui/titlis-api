@@ -69,6 +69,7 @@ src/main/kotlin/io/titlis/api/
 │   ├── SettingsAuthRoutes.kt  # /v1/settings/auth/providers
 │   ├── RagRoutes.kt           # /v1/internal/rag/* (Phase 2 — knowledge base pgvector)
 │   ├── InternalAiRoutes.kt    # /v1/internal/ai/* (Phase 3 — contexto vivo para titlis-ai)
+│   ├── OperatorScoringRoutes.kt # /v1/operator/scoring/evaluate (proxy → titlis-scoreops)
 │   └── JsonResponses.kt       # Helpers de serialização JSON
 └── udp/
     ├── UdpServer.kt           # Socket UDP porta 8125, worker pool de coroutines
@@ -248,12 +249,17 @@ GET  /v1/internal/ai/remediations/{uid}/history → histórico de remediações 
 POST /v1/internal/ai/slo-configs/{id}/propose-change → propõe mudança de threshold
 ```
 
-**Operator (polling de mudanças de SLO):**
+**Operator (polling de mudanças de SLO + roteamento de scoring):**
 ```
 GET  /v1/operator/pending-slo-changes           → mudanças status=pending do tenant (API key auth)
 POST /v1/operator/pending-slo-changes/{id}/applied → marca como aplicada
 POST /v1/operator/pending-slo-changes/{id}/failed  → registra falha
+POST /v1/operator/scoring/evaluate              → proxy para titlis-scoreops (API key auth)
 ```
+
+**Nota:** `POST /v1/operator/scoring/evaluate` é um proxy para `titlis-scoreops`. O operator-go
+envia `WorkloadSnapshot` para esta rota; a API encaminha para scoreops que calcula e retorna
+o score; o resultado é persistido assincronamente via evento `scorecard_evaluated`.
 
 Todos os endpoints `/v1/internal/*` são autenticados por `X-Internal-Secret` (não por JWT).
 Os endpoints `/v1/operator/*` são autenticados por API key do operator.
@@ -489,7 +495,35 @@ Endpoints de pgvector para a base RAG do titlis-ai:
 
 ---
 
-## 13. O Que Não Fazer
+## 13. Integração com titlis-scoreops
+
+### OperatorScoringRoutes.kt
+
+Rota `POST /v1/operator/scoring/evaluate` — autenticada por API key do operator-go.
+
+Fluxo:
+```
+operator-go → POST /v1/operator/scoring/evaluate (WorkloadSnapshot)
+  titlis-api: valida API key → resolve tenantId pela chave → proxy para ScoreopsClient
+  titlis-scoreops: calcula score → persiste → notifica titlis-api via scorecard_evaluated
+  titlis-api: recebe scorecard_evaluated (interno) → upsert em app_scorecards
+```
+
+`ScoreopsClient` (`config/AppConfig.kt`) aponta para `TITLIS_SCOREOPS_URL` com autenticação
+por `TITLIS_SCOREOPS_SECRET`.
+
+### ScoreConfigRepository.kt
+
+Mantém apenas os métodos usados pela UI settings (`/v1/settings/score-config`):
+- `listRules(engineSlug)` — lista regras de uma engine para exibição
+- `getPillarWeights(tenantId, engineSlug)` — pesos dos pilares para o tenant
+
+Os métodos `resolveClusterDisabled` e `resolveWorkloadDisabled` foram removidos na fase 5
+(agora é responsabilidade do titlis-scoreops resolver overrides).
+
+---
+
+## 14. O Que Não Fazer
 
 - **Nunca** use `transaction {}` no lugar de `dbQuery {}` — o `dbQuery` gerencia o dispatcher correto
 - **Nunca** omita o filtro `tenantId` em queries — viola isolamento multi-tenant
@@ -501,3 +535,28 @@ Endpoints de pgvector para a base RAG do titlis-ai:
   use select-first + validação de ownership; veja `ScorecardRepository.ensureCluster()`
 - **Nunca** adicione guard "só pode existir um tenant" em `setupBootstrap()` — o sistema é
   multi-tenant por design; a proteção de duplicata é por `tenantSlug`, não por contagem de usuários
+
+---
+
+## 15. Limitações Conhecidas
+
+### Soft-delete de remediações ativas ao excluir namespace
+
+Quando `syncNamespaceExclusions` é chamado e um namespace passa a `is_excluded = true`:
+- `workloads.is_active = false` → remediações ficam implicitamente ocultas nas queries (join filtra por workload ativo)
+- `SloConfigPendingChanges` com `status = 'pending'` são canceladas imediatamente (`status = 'cancelled'`)
+
+**Lacuna:** Remediações com status `PENDING`, `IN_PROGRESS` ou `PR_OPEN` **não** têm o status
+alterado para `CANCELLED` porque esse valor não existe no enum `titlis_oltp.remediation_status`
+(valores atuais: `PENDING`, `IN_PROGRESS`, `PR_OPEN`, `PR_MERGED`, `FAILED`, `SKIPPED`).
+O processo LangGraph em execução no titlis-ai também não é interrompido — não há canal de
+cancelamento entre a API e o agente.
+
+**Para resolver:** Executar a migration DDL manualmente e adicionar lógica de cancelamento:
+```sql
+ALTER TYPE titlis_oltp.remediation_status ADD VALUE 'CANCELLED';
+```
+Depois, em `ScorecardRepository.syncNamespaceExclusions()`, após setar `workloads.is_active = false`,
+adicionar UPDATE em `app_remediations` filtrando por `workloadId` e status em
+`('PENDING', 'IN_PROGRESS', 'PR_OPEN')` → `'CANCELLED'`.
+Considerar também um mecanismo de sinalização para o titlis-ai abortar o LangGraph thread.

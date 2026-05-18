@@ -47,6 +47,17 @@ object Namespaces : Table("titlis_oltp.namespaces") {
     override val primaryKey = PrimaryKey(namespaceId)
 }
 
+object ResourceTags : Table("titlis_oltp.resource_tags") {
+    val resourceTagId = long("resource_tag_id").autoIncrement()
+    val tenantId      = long("tenant_id").references(Tenants.tenantId)
+    val resourceType  = varchar("resource_type", 50)   // cluster | namespace | workload | tenant | slo
+    val resourceId    = long("resource_id")             // PK da entidade; sem FK — validado na aplicação
+    val tag           = varchar("tag", 100)
+    val createdBy     = varchar("created_by", 256).nullable()
+    val createdAt     = timestampWithTimeZone("created_at")
+    override val primaryKey = PrimaryKey(resourceTagId)
+}
+
 object Workloads : Table("titlis_oltp.workloads") {
     val workloadId           = long("workload_id").autoIncrement()
     val namespaceId          = long("namespace_id").references(Namespaces.namespaceId)
@@ -305,4 +316,57 @@ object PlatformUserInvites : Table("titlis_oltp.platform_user_invites") {
     val createdAt = timestampWithTimeZone("created_at")
     val updatedAt = timestampWithTimeZone("updated_at")
     override val primaryKey = PrimaryKey(platformUserInviteId)
+}
+
+object PrCampaigns : Table("titlis_oltp.pr_campaigns") {
+    val id             = varchar("id", 255)  // cmp_01H...
+    val tenantId       = long("tenant_id").references(Tenants.tenantId)
+    val workflowId     = varchar("workflow_id", 255)
+    val actorUserId    = uuid("actor_user_id").nullable()
+    val actorEmail     = varchar("actor_email", 320).nullable()
+    val triggerSource  = varchar("trigger_source", 50)  // manual | schedule | reactive
+    val ruleId         = varchar("rule_id", 50).nullable()
+    val title          = text("title")
+    val description    = text("description").nullable()
+    val status         = varchar("status", 50)  // QUEUED | RUNNING | COMPLETED | FAILED | CANCELLED
+    val idempotencyKey = varchar("idempotency_key", 255)
+    val totalItems     = integer("total_items")
+    val succeededItems = integer("succeeded_items").default(0)
+    val failedItems    = integer("failed_items").default(0)
+    val skippedItems   = integer("skipped_items").default(0)
+    val createdAt      = timestampWithTimeZone("created_at")
+    val updatedAt      = timestampWithTimeZone("updated_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
+object PrCampaignItems : Table("titlis_oltp.pr_campaign_items") {
+    val id                   = long("id").autoIncrement()
+    val campaignId           = varchar("campaign_id", 255).references(PrCampaigns.id)
+    val tenantId             = long("tenant_id")
+    val workloadId           = varchar("workload_id", 255)
+    val clusterName          = varchar("cluster_name", 255)
+    val namespace            = varchar("namespace", 255)
+    val deploymentName       = varchar("deployment_name", 255)
+    val repoUrl              = text("repo_url")
+    val recommendationSource = varchar("recommendation_source", 100)
+    val cascadeUpTo          = varchar("cascade_up_to", 20)
+    val status               = varchar("status", 50)
+    val errorMessage         = text("error_message").nullable()
+    val startedAt            = timestampWithTimeZone("started_at").nullable()
+    val finishedAt           = timestampWithTimeZone("finished_at").nullable()
+    override val primaryKey  = PrimaryKey(id)
+}
+
+object PrCampaignEnvSteps : Table("titlis_oltp.pr_campaign_env_steps") {
+    val id           = long("id").autoIncrement()
+    val itemId       = long("item_id").references(PrCampaignItems.id)
+    val environment  = varchar("environment", 20)
+    val manifestPath = text("manifest_path")
+    val branchName   = varchar("branch_name", 255).nullable()
+    val prNumber     = integer("pr_number").nullable()
+    val prUrl        = text("pr_url").nullable()
+    val status       = varchar("status", 50)
+    val startedAt    = timestampWithTimeZone("started_at").nullable()
+    val finishedAt   = timestampWithTimeZone("finished_at").nullable()
+    override val primaryKey = PrimaryKey(id)
 }

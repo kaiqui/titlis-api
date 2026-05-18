@@ -146,7 +146,3 @@ fun Application.operatorRoutes(
     }
 }
 
-private suspend fun resolveApiKeyTenant(call: ApplicationCall, apiKeyRepo: ApiKeyRepository): Long? {
-    val rawToken = call.request.headers["X-Api-Key"] ?: return null
-    return apiKeyRepo.resolveByToken(rawToken)
-}

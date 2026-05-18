@@ -5,6 +5,7 @@ import io.titlis.api.database.tables.*
 import io.titlis.api.domain.NotificationSentEvent
 import io.titlis.api.domain.ScorecardEvaluatedEvent
 import io.titlis.api.domain.ValidationResultData
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -16,6 +17,17 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.upsert
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+
+@Serializable
+data class OpenFinding(
+    val workloadId: String,
+    val workloadName: String,
+    val namespace: String,
+    val clusterName: String,
+    val ruleId: String,
+    val severity: String,
+    val message: String?,
+)
 
 class ScorecardRepository {
     private val logger = LoggerFactory.getLogger(ScorecardRepository::class.java)
@@ -587,7 +599,10 @@ class ScorecardRepository {
                     it[ValidationRules.ruleId] = validation.ruleId
                     it[ValidationRules.pillar] = validation.pillar.uppercase()
                     it[ValidationRules.ruleSeverity] = validation.severity.uppercase()
-                    it[ValidationRules.ruleType] = validation.ruleType.uppercase()
+                    it[ValidationRules.ruleType] = when (validation.ruleType.lowercase()) {
+                        "binary" -> "BOOLEAN"
+                        else -> validation.ruleType.uppercase()
+                    }
                     it[ValidationRules.weight] = validation.weight.toBigDecimal()
                     it[ValidationRules.ruleName] = validation.ruleName
                     it[ValidationRules.description] = validation.message
@@ -756,6 +771,54 @@ class ScorecardRepository {
         )
     }
 
+    suspend fun syncNamespaceExclusions(event: io.titlis.api.domain.NamespaceExclusionsSyncEvent, tenantId: Long) = dbQuery {
+        val clusterId = Clusters
+            .select(Clusters.clusterId)
+            .where { (Clusters.clusterName eq event.cluster) and (Clusters.tenantId eq tenantId) }
+            .singleOrNull()
+            ?.get(Clusters.clusterId)
+            ?: return@dbQuery
+
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+        val excludedSet = event.excludedNamespaces.toSet()
+
+        val allNamespaces = Namespaces
+            .select(Namespaces.namespaceId, Namespaces.namespaceName, Namespaces.isExcluded)
+            .where { Namespaces.clusterId eq clusterId }
+            .toList()
+
+        allNamespaces.forEach { nsRow ->
+            val nsId = nsRow[Namespaces.namespaceId]
+            val nsName = nsRow[Namespaces.namespaceName]
+            val shouldBeExcluded = nsName in excludedSet
+            val isCurrentlyExcluded = nsRow[Namespaces.isExcluded]
+
+            if (shouldBeExcluded != isCurrentlyExcluded) {
+                Namespaces.update({ Namespaces.namespaceId eq nsId }) {
+                    it[isExcluded] = shouldBeExcluded
+                    it[updatedAt] = now
+                }
+                Workloads.update({ Workloads.namespaceId eq nsId }) {
+                    it[isActive] = !shouldBeExcluded
+                    it[updatedAt] = now
+                }
+                if (shouldBeExcluded) {
+                    SloConfigPendingChanges.update({
+                        (SloConfigPendingChanges.namespace eq nsName) and
+                            (SloConfigPendingChanges.tenantId eq tenantId) and
+                            (SloConfigPendingChanges.status eq "pending")
+                    }) {
+                        it[SloConfigPendingChanges.status] = "cancelled"
+                    }
+                }
+                logger.info(
+                    "Namespace {}/{} exclusion changed: {} → {}",
+                    event.cluster, nsName, isCurrentlyExcluded, shouldBeExcluded,
+                )
+            }
+        }
+    }
+
     suspend fun getSimilarResolved(ruleId: String, tenantId: Long, limit: Int = 5): List<Map<String, Any?>> = dbQuery {
         (ValidationResults innerJoin ValidationRules innerJoin AppScorecards innerJoin Workloads innerJoin Namespaces innerJoin Clusters)
             .select(
@@ -835,5 +898,39 @@ class ScorecardRepository {
                     },
             )
         }
+    }
+
+    suspend fun getOpenFindingsByRule(tenantId: Long, ruleId: String, limit: Int): List<OpenFinding> = dbQuery {
+        (AppScorecards innerJoin Workloads innerJoin Namespaces innerJoin Clusters)
+            .join(ValidationResults, JoinType.INNER, AppScorecards.appScorecardId, ValidationResults.appScorecardId)
+            .join(ValidationRules, JoinType.INNER, ValidationResults.validationRuleId, ValidationRules.validationRuleId)
+            .select(
+                Workloads.k8sUid,
+                Workloads.workloadName,
+                Namespaces.namespaceName,
+                Clusters.clusterName,
+                ValidationRules.ruleId,
+                ValidationRules.ruleSeverity,
+                ValidationResults.resultMessage,
+            )
+            .where {
+                (AppScorecards.tenantId eq tenantId) and
+                    (ValidationRules.ruleId eq ruleId) and
+                    (ValidationResults.rulePassed eq false) and
+                    (ValidationRules.isRemediable eq true) and
+                    (Workloads.isActive eq true)
+            }
+            .limit(limit)
+            .map {
+                OpenFinding(
+                    workloadId   = it[Workloads.k8sUid] ?: "",
+                    workloadName = it[Workloads.workloadName],
+                    namespace    = it[Namespaces.namespaceName],
+                    clusterName  = it[Clusters.clusterName],
+                    ruleId       = it[ValidationRules.ruleId],
+                    severity     = it[ValidationRules.ruleSeverity],
+                    message      = it[ValidationResults.resultMessage],
+                )
+            }
     }
 }

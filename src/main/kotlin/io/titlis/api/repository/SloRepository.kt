@@ -87,7 +87,8 @@ class SloRepository {
             .where {
                 (SloConfigs.sloConfigName eq name) and
                     (Namespaces.namespaceName eq namespace) and
-                    (SloConfigs.tenantId eq tenantId)
+                    (SloConfigs.tenantId eq tenantId) and
+                    (Namespaces.isExcluded eq false)
             }
             .singleOrNull()
             ?.let { row ->
@@ -110,6 +111,7 @@ class SloRepository {
             .selectAll()
             .apply {
                 andWhere { SloConfigs.tenantId eq tenantId }
+                andWhere { Namespaces.isExcluded eq false }
                 if (!namespace.isNullOrBlank()) {
                     andWhere { Namespaces.namespaceName eq namespace }
                 }

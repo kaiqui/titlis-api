@@ -11,26 +11,22 @@ CREATE SCHEMA IF NOT EXISTS titlis_oltp;
 CREATE SCHEMA IF NOT EXISTS titlis_audit;
 CREATE SCHEMA IF NOT EXISTS titlis_ts;
 
--- Permissões para o usuário da aplicação (SELECT, INSERT, UPDATE apenas).
--- DEFAULT PRIVILEGES aplica-se a todos os objetos criados a partir deste ponto
--- pelo usuário que executa esta migration.
-GRANT USAGE ON SCHEMA titlis_oltp  TO titlis_app;
-GRANT USAGE ON SCHEMA titlis_audit TO titlis_app;
-GRANT USAGE ON SCHEMA titlis_ts    TO titlis_app;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_oltp
-    GRANT SELECT, INSERT, UPDATE ON TABLES TO titlis_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_audit
-    GRANT SELECT, INSERT, UPDATE ON TABLES TO titlis_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_ts
-    GRANT SELECT, INSERT, UPDATE ON TABLES TO titlis_app;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_oltp
-    GRANT USAGE ON SEQUENCES TO titlis_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_audit
-    GRANT USAGE ON SEQUENCES TO titlis_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_ts
-    GRANT USAGE ON SEQUENCES TO titlis_app;
+-- Permissões para o usuário da aplicação — apenas em ambientes com role titlis_app
+-- (Docker Compose local). Em Supabase e outros managed PostgreSQL o role não existe.
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'titlis_app') THEN
+    EXECUTE 'GRANT USAGE ON SCHEMA titlis_oltp  TO titlis_app';
+    EXECUTE 'GRANT USAGE ON SCHEMA titlis_audit TO titlis_app';
+    EXECUTE 'GRANT USAGE ON SCHEMA titlis_ts    TO titlis_app';
+    EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_oltp  GRANT SELECT, INSERT, UPDATE ON TABLES TO titlis_app';
+    EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_audit GRANT SELECT, INSERT, UPDATE ON TABLES TO titlis_app';
+    EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_ts    GRANT SELECT, INSERT, UPDATE ON TABLES TO titlis_app';
+    EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_oltp  GRANT USAGE ON SEQUENCES TO titlis_app';
+    EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_audit GRANT USAGE ON SEQUENCES TO titlis_app';
+    EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA titlis_ts    GRANT USAGE ON SEQUENCES TO titlis_app';
+  END IF;
+END $$;
 
 -- ================================================================
 -- ENUMS

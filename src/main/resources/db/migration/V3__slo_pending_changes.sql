@@ -2,7 +2,7 @@
 -- V3: Fila de mudanças de threshold de SLO propostas pelo titlis-ai
 -- ================================================================
 
-CREATE TABLE titlis_oltp.slo_config_pending_changes (
+CREATE TABLE IF NOT EXISTS titlis_oltp.slo_config_pending_changes (
     id              UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
     tenant_id       BIGINT      NOT NULL REFERENCES titlis_oltp.tenants(tenant_id) ON DELETE CASCADE,
     slo_config_name TEXT        NOT NULL,
@@ -26,9 +26,9 @@ COMMENT ON COLUMN titlis_oltp.slo_config_pending_changes.old_value      IS 'Valo
 COMMENT ON COLUMN titlis_oltp.slo_config_pending_changes.requested_by   IS 'Ator: titlis-ai ou user:{user_id}';
 COMMENT ON COLUMN titlis_oltp.slo_config_pending_changes.status         IS 'pending | applied | failed | cancelled';
 
-CREATE INDEX idx_slo_pending_tenant_status
+CREATE INDEX IF NOT EXISTS idx_slo_pending_tenant_status
     ON titlis_oltp.slo_config_pending_changes (tenant_id, status)
     WHERE status = 'pending';
 
-CREATE INDEX idx_slo_pending_created
+CREATE INDEX IF NOT EXISTS idx_slo_pending_created
     ON titlis_oltp.slo_config_pending_changes (created_at DESC);

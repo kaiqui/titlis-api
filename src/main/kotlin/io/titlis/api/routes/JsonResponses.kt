@@ -3,6 +3,7 @@ package io.titlis.api.routes
 import io.ktor.http.ContentType
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.respondText
+import io.titlis.api.repository.ApiKeyRepository
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -14,6 +15,11 @@ suspend fun ApplicationCall.respondJson(value: Any?) {
         text = toJsonElement(value).toString(),
         contentType = ContentType.Application.Json,
     )
+}
+
+suspend fun resolveApiKeyTenant(call: ApplicationCall, apiKeyRepo: ApiKeyRepository): Long? {
+    val rawToken = call.request.headers["X-Api-Key"] ?: return null
+    return apiKeyRepo.resolveByToken(rawToken)
 }
 
 private fun toJsonElement(value: Any?): JsonElement = when (value) {

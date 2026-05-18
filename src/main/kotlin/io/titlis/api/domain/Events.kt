@@ -131,6 +131,12 @@ data class NotificationSentEvent(
 )
 
 @Serializable
+data class NamespaceExclusionsSyncEvent(
+    val cluster: String,
+    @SerialName("excluded_namespaces") val excludedNamespaces: List<String>,
+)
+
+@Serializable
 data class ResourceMetricsEvent(
     @SerialName("workload_id") val workloadId: String,
     @SerialName("tenant_id") val tenantId: Long? = null,
@@ -146,4 +152,42 @@ data class ResourceMetricsEvent(
     @SerialName("suggested_mem_request") val suggestedMemRequest: String? = null,
     @SerialName("suggested_mem_limit") val suggestedMemLimit: String? = null,
     @SerialName("sample_window") val sampleWindow: String? = null,
+)
+
+@Serializable
+data class RuleFailedEvent(
+    @SerialName("workload_id") val workloadId: String,
+    @SerialName("rule_id") val ruleId: String,
+    val namespace: String,
+    val cluster: String,
+    @SerialName("environment") val environment: String = "unknown",
+    @SerialName("trigger_source") val triggerSource: String = "reactive",
+)
+
+@Serializable
+data class CampaignCompletedEvent(
+    @SerialName("campaign_id") val campaignId: String,
+    @SerialName("tenant_id") val tenantId: Long? = null,
+    val status: String,
+    @SerialName("total_items") val totalItems: Int,
+    @SerialName("succeeded_items") val succeededItems: Int,
+    @SerialName("failed_items") val failedItems: Int,
+    @SerialName("skipped_items") val skippedItems: Int,
+)
+
+@Serializable
+data class DiscoveryCompletedEvent(
+    @SerialName("tenant_id") val tenantId: Long? = null,
+    @SerialName("rule_id") val ruleId: String,
+    @SerialName("total_findings") val totalFindings: Int,
+    @SerialName("campaigns_started") val campaignsStarted: Int,
+)
+
+@Serializable
+data class FindingOpenedEvent(
+    @SerialName("workload_id") val workloadId: String,
+    @SerialName("rule_id") val ruleId: String,
+    val namespace: String,
+    val cluster: String,
+    @SerialName("environment") val environment: String = "unknown",
 )
