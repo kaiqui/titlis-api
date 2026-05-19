@@ -15,13 +15,13 @@ spec:
     layout: folder_per_env
     paths:
       dev:
-        path: titlis-api/manifest/kubernetes/develop/deploy.yaml
+        path: manifest/kubernetes/develop/deploy.yaml
         base_branch: develop
       hml:
-        path: titlis-api/manifest/kubernetes/release/deploy.yaml
+        path: manifest/kubernetes/release/deploy.yaml
         base_branch: release
       prd:
-        path: titlis-api/manifest/kubernetes/main/deploy.yaml
+        path: manifest/kubernetes/main/deploy.yaml
         base_branch: main
     pipeline_watcher: argocd
   remediation:
