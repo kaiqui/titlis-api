@@ -73,6 +73,12 @@ class EventRouter(
         }
     }
 
+    // routeFromPrbot dispatches an event sent via HTTP from titlis-prbot (X-Internal-Secret auth).
+    // Unlike routeHttp, it does not require an operator API key.
+    suspend fun routeFromPrbot(envelope: UdpEnvelope, tenantId: Long) {
+        dispatchEvent(envelope, tenantId)
+    }
+
     private suspend fun dispatchEvent(envelope: UdpEnvelope, tenantId: Long) {
         when (envelope.t) {
             "scorecard_evaluated" -> {
@@ -110,6 +116,26 @@ class EventRouter(
                 val event = json.decodeFromJsonElement<RuleFailedEvent>(envelope.data)
                 logger.info("Rule failed event: rule=${event.ruleId} workload=${event.workloadId} tenant=$tenantId")
                 // prbot picks up via GET /v1/internal/prbot/findings; no-op here for now
+            }
+            "campaign_started" -> {
+                val event = json.decodeFromJsonElement<CampaignStartedEvent>(envelope.data)
+                try {
+                    campaignRepo.insert(
+                        id             = event.campaignId,
+                        tenantId       = tenantId,
+                        workflowId     = event.workflowId,
+                        actorEmail     = event.actorEmail,
+                        triggerSource  = event.triggerSource,
+                        ruleId         = event.ruleId,
+                        title          = event.title,
+                        description    = event.description,
+                        status         = "RUNNING",
+                        idempotencyKey = event.campaignId,
+                        totalItems     = event.totalItems,
+                    )
+                } catch (e: Exception) {
+                    logger.warn("campaign_started: insert skipped (may already exist): ${e.message}")
+                }
             }
             "campaign_completed" -> {
                 val event = json.decodeFromJsonElement<CampaignCompletedEvent>(envelope.data)

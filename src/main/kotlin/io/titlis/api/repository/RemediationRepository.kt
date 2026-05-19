@@ -69,8 +69,8 @@ class RemediationRepository {
                 it[RemediationHistory.issuesSnapshot] = event.issuesSnapshot?.toString()
                 it[RemediationHistory.errorMessage] = event.errorMessage
                 it[RemediationHistory.triggeredAt] =
-                    OffsetDateTime.parse(event.triggeredAt)
-                it[RemediationHistory.resolvedAt] = event.resolvedAt?.let { ts ->
+                    if (event.triggeredAt.isBlank()) now else OffsetDateTime.parse(event.triggeredAt)
+                it[RemediationHistory.resolvedAt] = event.resolvedAt?.takeIf { it.isNotBlank() }?.let { ts ->
                     OffsetDateTime.parse(ts)
                 }
                 it[RemediationHistory.createdAt] = now
@@ -92,8 +92,8 @@ class RemediationRepository {
             it[AppRemediations.repositoryUrl] = event.repositoryUrl?.take(500)
             it[AppRemediations.errorMessage]  = event.errorMessage
             it[AppRemediations.triggeredAt]   =
-                OffsetDateTime.parse(event.triggeredAt)
-            it[AppRemediations.resolvedAt]    = event.resolvedAt?.let { ts ->
+                if (event.triggeredAt.isBlank()) now else OffsetDateTime.parse(event.triggeredAt)
+            it[AppRemediations.resolvedAt]    = event.resolvedAt?.takeIf { it.isNotBlank() }?.let { ts ->
                 OffsetDateTime.parse(ts)
             }
             it[AppRemediations.createdAt]     = now

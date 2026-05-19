@@ -73,11 +73,11 @@ data class ValidationResultData(
 data class RemediationEvent(
     @SerialName("workload_id") val workloadId: String,
     @SerialName("tenant_id") val tenantId: Long? = null,
-    val namespace: String,
-    val workload: String,
+    val namespace: String = "",
+    val workload: String = "",
     val status: String,
     @SerialName("previous_status") val previousStatus: String? = null,
-    val version: Int,
+    val version: Int = 0,
     @SerialName("scorecard_version") val scorecardVersion: Int? = null,
     @SerialName("github_pr_number") val githubPrNumber: Int? = null,
     @SerialName("github_pr_title") val githubPrTitle: String? = null,
@@ -86,7 +86,7 @@ data class RemediationEvent(
     @SerialName("repository_url") val repositoryUrl: String? = null,
     @SerialName("issues_snapshot") val issuesSnapshot: JsonArray? = null,
     @SerialName("error_message") val errorMessage: String? = null,
-    @SerialName("triggered_at") val triggeredAt: String,
+    @SerialName("triggered_at") val triggeredAt: String = "",
     @SerialName("resolved_at") val resolvedAt: String? = null,
 )
 
@@ -190,4 +190,16 @@ data class FindingOpenedEvent(
     val namespace: String,
     val cluster: String,
     @SerialName("environment") val environment: String = "unknown",
+)
+
+@Serializable
+data class CampaignStartedEvent(
+    @SerialName("campaign_id")    val campaignId: String,
+    @SerialName("workflow_id")    val workflowId: String,
+    @SerialName("trigger_source") val triggerSource: String,
+    @SerialName("rule_id")        val ruleId: String? = null,
+    val title: String,
+    val description: String? = null,
+    @SerialName("total_items")    val totalItems: Int,
+    @SerialName("actor_email")    val actorEmail: String? = null,
 )

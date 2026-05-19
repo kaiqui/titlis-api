@@ -13,10 +13,13 @@ spec:
         value: "#platform-oncall"
   gitops:
     layout: folder_per_env
-    base_branch: main
     paths:
-      dev: manifest/kubernetes/main/deploy.yaml
-      prd: manifest/kubernetes/main/deploy.yaml
+      dev:
+        path: k8s/preprod/minikube-preprod.yaml
+        base_branch: main
+      prd:
+        path: k8s/preprod/minikube-preprod.yaml
+        base_branch: main
     pipeline_watcher: argocd
   remediation:
     enabled: true

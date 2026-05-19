@@ -5,6 +5,7 @@ import io.titlis.api.database.tables.*
 import io.titlis.api.domain.NotificationSentEvent
 import io.titlis.api.domain.ScorecardEvaluatedEvent
 import io.titlis.api.domain.ValidationResultData
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -20,14 +21,18 @@ import java.time.ZoneOffset
 
 @Serializable
 data class OpenFinding(
-    val workloadId: String,
-    val workloadName: String,
+    @SerialName("workload_uid")     val workloadUid: String,
+    @SerialName("deployment_name") val deploymentName: String,
     val namespace: String,
-    val clusterName: String,
-    val ruleId: String,
-    val severity: String,
-    val message: String?,
+    @SerialName("cluster_name")    val clusterName: String,
+    @SerialName("rule_id")         val ruleId: String,
+    val environment: String,
+    val criticality: String,
+    @SerialName("has_datadog")     val hasDatadog: Boolean,
 )
+
+@Serializable
+data class FindingsResponse(val items: List<OpenFinding>)
 
 class ScorecardRepository {
     private val logger = LoggerFactory.getLogger(ScorecardRepository::class.java)
@@ -907,11 +912,12 @@ class ScorecardRepository {
             .select(
                 Workloads.k8sUid,
                 Workloads.workloadName,
+                Workloads.ddGitRepositoryUrl,
                 Namespaces.namespaceName,
                 Clusters.clusterName,
+                Clusters.environment,
                 ValidationRules.ruleId,
                 ValidationRules.ruleSeverity,
-                ValidationResults.resultMessage,
             )
             .where {
                 (AppScorecards.tenantId eq tenantId) and
@@ -923,13 +929,14 @@ class ScorecardRepository {
             .limit(limit)
             .map {
                 OpenFinding(
-                    workloadId   = it[Workloads.k8sUid] ?: "",
-                    workloadName = it[Workloads.workloadName],
-                    namespace    = it[Namespaces.namespaceName],
-                    clusterName  = it[Clusters.clusterName],
-                    ruleId       = it[ValidationRules.ruleId],
-                    severity     = it[ValidationRules.ruleSeverity],
-                    message      = it[ValidationResults.resultMessage],
+                    workloadUid    = it[Workloads.k8sUid] ?: "",
+                    deploymentName = it[Workloads.workloadName],
+                    namespace      = it[Namespaces.namespaceName],
+                    clusterName    = it[Clusters.clusterName],
+                    ruleId         = it[ValidationRules.ruleId],
+                    environment    = it[Clusters.environment],
+                    criticality    = it[ValidationRules.ruleSeverity],
+                    hasDatadog     = it[Workloads.ddGitRepositoryUrl] != null,
                 )
             }
     }
