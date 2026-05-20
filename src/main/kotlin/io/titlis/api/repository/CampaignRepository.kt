@@ -1,11 +1,12 @@
 package io.titlis.api.repository
 
 import io.titlis.api.database.DatabaseFactory.dbQuery
-import io.titlis.api.database.tables.PrCampaignEvents
+import io.titlis.api.database.tables.EventStorePrCampaign
 import io.titlis.api.database.tables.PrCampaigns
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SortOrder
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.plus
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.update
@@ -46,7 +47,7 @@ class CampaignRepository {
     ): Unit = dbQuery {
         val now = OffsetDateTime.now(ZoneOffset.UTC)
         PrCampaigns.insert {
-            it[PrCampaigns.id]             = id
+            it[PrCampaigns.prCampaignId]   = id
             it[PrCampaigns.tenantId]       = tenantId
             it[PrCampaigns.workflowId]     = workflowId
             it[PrCampaigns.actorEmail]     = actorEmail
@@ -65,7 +66,7 @@ class CampaignRepository {
     suspend fun list(tenantId: Long, limit: Int = 50): List<CampaignSummary> = dbQuery {
         PrCampaigns
             .select(
-                PrCampaigns.id, PrCampaigns.tenantId, PrCampaigns.workflowId,
+                PrCampaigns.prCampaignId, PrCampaigns.tenantId, PrCampaigns.workflowId,
                 PrCampaigns.actorEmail, PrCampaigns.triggerSource, PrCampaigns.ruleId,
                 PrCampaigns.title, PrCampaigns.status, PrCampaigns.totalItems,
                 PrCampaigns.succeededItems, PrCampaigns.failedItems, PrCampaigns.skippedItems,
@@ -80,13 +81,13 @@ class CampaignRepository {
     suspend fun findById(id: String, tenantId: Long): CampaignSummary? = dbQuery {
         PrCampaigns
             .select(
-                PrCampaigns.id, PrCampaigns.tenantId, PrCampaigns.workflowId,
+                PrCampaigns.prCampaignId, PrCampaigns.tenantId, PrCampaigns.workflowId,
                 PrCampaigns.actorEmail, PrCampaigns.triggerSource, PrCampaigns.ruleId,
                 PrCampaigns.title, PrCampaigns.status, PrCampaigns.totalItems,
                 PrCampaigns.succeededItems, PrCampaigns.failedItems, PrCampaigns.skippedItems,
                 PrCampaigns.createdAt, PrCampaigns.updatedAt,
             )
-            .where { (PrCampaigns.id eq id) and (PrCampaigns.tenantId eq tenantId) }
+            .where { (PrCampaigns.prCampaignId eq id) and (PrCampaigns.tenantId eq tenantId) }
             .singleOrNull()
             ?.let { mapCampaign(it) }
     }
@@ -100,7 +101,7 @@ class CampaignRepository {
         skippedItems: Int? = null,
     ): Unit = dbQuery {
         val now = OffsetDateTime.now(ZoneOffset.UTC)
-        PrCampaigns.update({ (PrCampaigns.id eq id) and (PrCampaigns.tenantId eq tenantId) }) { row ->
+        PrCampaigns.update({ (PrCampaigns.prCampaignId eq id) and (PrCampaigns.tenantId eq tenantId) }) { row ->
             row[PrCampaigns.status]    = status
             row[PrCampaigns.updatedAt] = now
             succeededItems?.let { row[PrCampaigns.succeededItems] = it }
@@ -109,19 +110,52 @@ class CampaignRepository {
         }
     }
 
+    suspend fun findActiveByRuleId(tenantId: Long, ruleId: String): CampaignSummary? = dbQuery {
+        PrCampaigns
+            .select(
+                PrCampaigns.prCampaignId, PrCampaigns.tenantId, PrCampaigns.workflowId,
+                PrCampaigns.actorEmail, PrCampaigns.triggerSource, PrCampaigns.ruleId,
+                PrCampaigns.title, PrCampaigns.status, PrCampaigns.totalItems,
+                PrCampaigns.succeededItems, PrCampaigns.failedItems, PrCampaigns.skippedItems,
+                PrCampaigns.createdAt, PrCampaigns.updatedAt,
+            )
+            .where {
+                (PrCampaigns.tenantId eq tenantId) and
+                (PrCampaigns.ruleId eq ruleId) and
+                (PrCampaigns.status inList listOf("QUEUED", "RUNNING"))
+            }
+            .orderBy(PrCampaigns.createdAt, SortOrder.DESC)
+            .limit(1)
+            .singleOrNull()
+            ?.let { mapCampaign(it) }
+    }
+
+    suspend fun incrementItem(campaignId: String, tenantId: Long, outcome: String): Unit = dbQuery {
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+        PrCampaigns.update({ (PrCampaigns.prCampaignId eq campaignId) and (PrCampaigns.tenantId eq tenantId) }) { row ->
+            when (outcome.lowercase()) {
+                "succeeded" -> row[PrCampaigns.succeededItems] = PrCampaigns.succeededItems + 1
+                "failed"    -> row[PrCampaigns.failedItems]    = PrCampaigns.failedItems    + 1
+                else        -> row[PrCampaigns.skippedItems]   = PrCampaigns.skippedItems   + 1
+            }
+            row[PrCampaigns.updatedAt] = now
+        }
+    }
+
     suspend fun appendEvent(campaignId: String, tenantId: Long, eventType: String, payload: String): Unit = dbQuery {
         val now = OffsetDateTime.now(ZoneOffset.UTC)
-        PrCampaignEvents.insert {
-            it[PrCampaignEvents.campaignId]  = campaignId
-            it[PrCampaignEvents.tenantId]    = tenantId
-            it[PrCampaignEvents.eventType]   = eventType
-            it[PrCampaignEvents.payload]     = payload
-            it[PrCampaignEvents.occurredAt]  = now
+        EventStorePrCampaign.insert {
+            it[EventStorePrCampaign.campaignId]  = campaignId
+            it[EventStorePrCampaign.tenantId]    = tenantId
+            it[EventStorePrCampaign.eventType]   = eventType
+            it[EventStorePrCampaign.payload]     = payload
+            it[EventStorePrCampaign.occurredAt]  = now
+            it[EventStorePrCampaign.createdAt]   = now
         }
     }
 
     private fun mapCampaign(row: ResultRow) = CampaignSummary(
-        id             = row[PrCampaigns.id],
+        id             = row[PrCampaigns.prCampaignId],
         tenantId       = row[PrCampaigns.tenantId],
         workflowId     = row[PrCampaigns.workflowId],
         actorEmail     = row[PrCampaigns.actorEmail],

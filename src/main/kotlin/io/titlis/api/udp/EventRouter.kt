@@ -149,6 +149,21 @@ class EventRouter(
                 )
                 campaignRepo.appendEvent(event.campaignId, tenantId, "campaign_completed", json.encodeToString(event))
             }
+            "campaign_item_completed" -> {
+                val event = json.decodeFromJsonElement<CampaignItemCompletedEvent>(envelope.data)
+                campaignRepo.incrementItem(event.campaignId, tenantId, event.status)
+                val campaign = campaignRepo.findById(event.campaignId, tenantId)
+                if (campaign != null) {
+                    val processed = campaign.succeededItems + campaign.failedItems + campaign.skippedItems
+                    if (campaign.totalItems > 0 && processed >= campaign.totalItems) {
+                        campaignRepo.updateStatus(
+                            id = campaign.id,
+                            tenantId = tenantId,
+                            status = if (campaign.failedItems > 0 && campaign.succeededItems == 0) "FAILED" else "COMPLETED",
+                        )
+                    }
+                }
+            }
             "discovery_completed" -> {
                 val event = json.decodeFromJsonElement<DiscoveryCompletedEvent>(envelope.data)
                 logger.info("Discovery completed: rule=${event.ruleId} findings=${event.totalFindings} campaigns=${event.campaignsStarted} tenant=$tenantId")

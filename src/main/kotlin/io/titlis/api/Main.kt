@@ -170,6 +170,6 @@ fun Application.module() {
     bulkPrCampaignRoutes(campaignRepo, prbotClient)
     settingsPrbotRoutes(prbotClient)
     settingsInsightsRoutes(insightsClient)
-    internalPrbotRoutes(scorecardRepo, aiConfigRepo, config.prbot.secret, router)
+    internalPrbotRoutes(scorecardRepo, aiConfigRepo, config.prbot.secret, router, config.aiService.url, config.aiService.internalSecret)
     internalScorecardRoutes(scorecardRepo, remediationRepo, config.scoreops.secret)
 }

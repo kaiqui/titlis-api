@@ -100,12 +100,13 @@ object SloComplianceHistory : Table("titlis_audit.slo_compliance_history") {
     override val primaryKey = PrimaryKey(sloComplianceHistoryId)
 }
 
-object PrCampaignEvents : Table("titlis_audit.pr_campaign_events") {
-    val id         = long("id").autoIncrement()
-    val campaignId = varchar("campaign_id", 255)  // ref lógica sem FK
-    val tenantId   = long("tenant_id")
-    val eventType  = varchar("event_type", 100)
-    val payload    = jsonbText("payload")
-    val occurredAt = timestampWithTimeZone("occurred_at")
-    override val primaryKey = PrimaryKey(id)
+object EventStorePrCampaign : Table("titlis_audit.event_store_pr_campaign") {
+    val eventStorePrCampaignId = long("event_store_pr_campaign_id").autoIncrement()
+    val campaignId             = varchar("campaign_id", 255)  // ref lógica sem FK
+    val tenantId               = long("tenant_id")
+    val eventType              = varchar("event_type", 100)
+    val payload                = jsonbText("payload")
+    val occurredAt             = timestampWithTimeZone("occurred_at")
+    val createdAt              = timestampWithTimeZone("created_at")
+    override val primaryKey    = PrimaryKey(eventStorePrCampaignId)
 }

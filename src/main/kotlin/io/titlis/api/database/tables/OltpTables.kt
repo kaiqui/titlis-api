@@ -319,7 +319,7 @@ object PlatformUserInvites : Table("titlis_oltp.platform_user_invites") {
 }
 
 object PrCampaigns : Table("titlis_oltp.pr_campaigns") {
-    val id             = varchar("id", 255)  // cmp_01H...
+    val prCampaignId   = varchar("pr_campaign_id", 255)  // cmp_01H...
     val tenantId       = long("tenant_id").references(Tenants.tenantId)
     val workflowId     = varchar("workflow_id", 255)
     val actorUserId    = uuid("actor_user_id").nullable()
@@ -336,12 +336,12 @@ object PrCampaigns : Table("titlis_oltp.pr_campaigns") {
     val skippedItems   = integer("skipped_items").default(0)
     val createdAt      = timestampWithTimeZone("created_at")
     val updatedAt      = timestampWithTimeZone("updated_at")
-    override val primaryKey = PrimaryKey(id)
+    override val primaryKey = PrimaryKey(prCampaignId)
 }
 
 object PrCampaignItems : Table("titlis_oltp.pr_campaign_items") {
-    val id                   = long("id").autoIncrement()
-    val campaignId           = varchar("campaign_id", 255).references(PrCampaigns.id)
+    val prCampaignItemId     = long("pr_campaign_item_id").autoIncrement()
+    val prCampaignId         = varchar("pr_campaign_id", 255).references(PrCampaigns.prCampaignId)
     val tenantId             = long("tenant_id")
     val workloadId           = varchar("workload_id", 255)
     val clusterName          = varchar("cluster_name", 255)
@@ -354,19 +354,19 @@ object PrCampaignItems : Table("titlis_oltp.pr_campaign_items") {
     val errorMessage         = text("error_message").nullable()
     val startedAt            = timestampWithTimeZone("started_at").nullable()
     val finishedAt           = timestampWithTimeZone("finished_at").nullable()
-    override val primaryKey  = PrimaryKey(id)
+    override val primaryKey  = PrimaryKey(prCampaignItemId)
 }
 
 object PrCampaignEnvSteps : Table("titlis_oltp.pr_campaign_env_steps") {
-    val id           = long("id").autoIncrement()
-    val itemId       = long("item_id").references(PrCampaignItems.id)
-    val environment  = varchar("environment", 20)
-    val manifestPath = text("manifest_path")
-    val branchName   = varchar("branch_name", 255).nullable()
-    val prNumber     = integer("pr_number").nullable()
-    val prUrl        = text("pr_url").nullable()
-    val status       = varchar("status", 50)
-    val startedAt    = timestampWithTimeZone("started_at").nullable()
-    val finishedAt   = timestampWithTimeZone("finished_at").nullable()
-    override val primaryKey = PrimaryKey(id)
+    val prCampaignEnvStepId = long("pr_campaign_env_step_id").autoIncrement()
+    val prCampaignItemId    = long("pr_campaign_item_id").references(PrCampaignItems.prCampaignItemId)
+    val environment         = varchar("environment", 20)
+    val manifestPath        = text("manifest_path")
+    val branchName          = varchar("branch_name", 255).nullable()
+    val prNumber            = integer("pr_number").nullable()
+    val prUrl               = text("pr_url").nullable()
+    val status              = varchar("status", 50)
+    val startedAt           = timestampWithTimeZone("started_at").nullable()
+    val finishedAt          = timestampWithTimeZone("finished_at").nullable()
+    override val primaryKey = PrimaryKey(prCampaignEnvStepId)
 }

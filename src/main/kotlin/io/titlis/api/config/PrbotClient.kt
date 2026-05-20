@@ -11,6 +11,9 @@ import java.time.Duration
 class PrbotClient(private val baseUrl: String, private val secret: String) {
     private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()
 
+    suspend fun triggerManifestCampaign(tenantId: Long, campaignId: String): Pair<Int, String> =
+        proxy("POST", "/v1/manifest-campaigns?tenant_id=$tenantId", """{"tenant_id":$tenantId,"campaign_id":"$campaignId"}""")
+
     suspend fun proxy(method: String, path: String, body: String?): Pair<Int, String> =
         withContext(Dispatchers.IO) {
             val builder = HttpRequest.newBuilder()

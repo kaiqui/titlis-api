@@ -48,6 +48,8 @@ fun Application.operatorScoringRoutes(
     }
 }
 
+private val ENV_TAG_VALUES = setOf("dev", "hml", "prd")
+
 private suspend fun WorkloadSnapshotDTO.withEnrichedTags(
     tenantId: Long,
     tagRepo: TagRepository,
@@ -58,5 +60,15 @@ private suspend fun WorkloadSnapshotDTO.withEnrichedTags(
     val namespaceTags = tagRepo.findNamespaceIdByName(clusterId, namespace)
         ?.let { tagRepo.listTagsForResource(tenantId, "namespace", it) }
         ?: emptyList()
-    return withTags(clusterTags, namespaceTags)
+
+    // Priority: env:* tag on cluster or namespace > Clusters.environment column
+    val envFromTag = (clusterTags + namespaceTags)
+        .firstOrNull { it.startsWith("env:") }
+        ?.removePrefix("env:")
+        ?.takeIf { it in ENV_TAG_VALUES }
+    val resolvedEnv = envFromTag
+        ?: tagRepo.findClusterEnvironment(tenantId, cluster)
+        ?: ""
+
+    return withTags(clusterTags, namespaceTags, resolvedEnv)
 }

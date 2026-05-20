@@ -169,10 +169,10 @@ data class CampaignCompletedEvent(
     @SerialName("campaign_id") val campaignId: String,
     @SerialName("tenant_id") val tenantId: Long? = null,
     val status: String,
-    @SerialName("total_items") val totalItems: Int,
-    @SerialName("succeeded_items") val succeededItems: Int,
-    @SerialName("failed_items") val failedItems: Int,
-    @SerialName("skipped_items") val skippedItems: Int,
+    @SerialName("total_items") val totalItems: Int = 0,
+    @SerialName("succeeded_items") val succeededItems: Int = 0,
+    @SerialName("failed_items") val failedItems: Int = 0,
+    @SerialName("skipped_items") val skippedItems: Int = 0,
 )
 
 @Serializable
@@ -187,8 +187,8 @@ data class DiscoveryCompletedEvent(
 data class FindingOpenedEvent(
     @SerialName("workload_id") val workloadId: String,
     @SerialName("rule_id") val ruleId: String,
-    val namespace: String,
-    val cluster: String,
+    val namespace: String = "",
+    val cluster: String = "",
     @SerialName("environment") val environment: String = "unknown",
 )
 
@@ -202,4 +202,12 @@ data class CampaignStartedEvent(
     val description: String? = null,
     @SerialName("total_items")    val totalItems: Int,
     @SerialName("actor_email")    val actorEmail: String? = null,
+)
+
+@Serializable
+data class CampaignItemCompletedEvent(
+    @SerialName("campaign_id")  val campaignId: String,
+    @SerialName("item_id")      val itemId: String,
+    @SerialName("workload_uid") val workloadUid: String,
+    val status: String, // succeeded | failed | skipped
 )

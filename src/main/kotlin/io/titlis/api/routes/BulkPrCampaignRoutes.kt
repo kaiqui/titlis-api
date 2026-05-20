@@ -81,6 +81,38 @@ fun Application.bulkPrCampaignRoutes(
                 call.respond(HttpStatusCode.fromValue(status), resp)
             }
 
+            // Manual trigger for comprehensive manifest-fix campaign.
+            post("/v1/bulk-pr/manifest-campaigns") {
+                val principal = call.requireAdminPrincipal() ?: return@post
+                val active = campaignRepo.findActiveByRuleId(principal.tenantId, "manifest")
+                if (active != null) {
+                    call.respond(HttpStatusCode.Conflict, active)
+                    return@post
+                }
+                val campaignId = "manual-manifest-${principal.tenantId}-${System.currentTimeMillis()}"
+                val (status, resp) = prbotClient.triggerManifestCampaign(principal.tenantId, campaignId)
+                if (status in 200..299) {
+                    try {
+                        campaignRepo.insert(
+                            id             = campaignId,
+                            tenantId       = principal.tenantId,
+                            workflowId     = campaignId,
+                            actorEmail     = principal.email,
+                            triggerSource  = "manual",
+                            ruleId         = "manifest",
+                            title          = "Correção de compliance manifest",
+                            description    = null,
+                            status         = "RUNNING",
+                            idempotencyKey = campaignId,
+                            totalItems     = 0, // updated by campaign_started event from prbot
+                        )
+                    } catch (e: Exception) {
+                        bulkLog.warn("manifest-campaign: insert skipped: ${e.message}")
+                    }
+                }
+                call.respond(HttpStatusCode.fromValue(status), resp)
+            }
+
             // Returns list of workloads that have a .titlis/service.yaml discovered by prbot.
             // Used by the UI to show ServiceDefinition adherence badges.
             get("/v1/bulk-pr/service-definitions") {

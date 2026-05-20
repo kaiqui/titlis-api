@@ -40,11 +40,12 @@ data class WorkloadSnapshotDTO(
     @SerialName("hpa_has_behavior_policies") val hpaHasBehaviorPolicies: Boolean = false,
     @SerialName("cluster_tags") val clusterTags: List<String> = emptyList(),
     @SerialName("namespace_tags") val namespaceTags: List<String> = emptyList(),
+    val environment: String = "",
 ) {
     fun withTenant(tenantId: Long) = copy(tenantId = tenantId)
 
-    fun withTags(clusterTags: List<String>, namespaceTags: List<String>) =
-        copy(clusterTags = clusterTags, namespaceTags = namespaceTags)
+    fun withTags(clusterTags: List<String>, namespaceTags: List<String>, environment: String) =
+        copy(clusterTags = clusterTags, namespaceTags = namespaceTags, environment = environment)
 }
 
 @Serializable

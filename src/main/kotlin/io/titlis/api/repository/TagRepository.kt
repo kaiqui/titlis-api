@@ -120,6 +120,15 @@ class TagRepository {
             ?.get(Clusters.clusterId)
     }
 
+    suspend fun findClusterEnvironment(tenantId: Long, clusterName: String): String? = dbQuery {
+        Clusters
+            .select(Clusters.environment)
+            .where { (Clusters.tenantId eq tenantId) and (Clusters.clusterName eq clusterName) }
+            .singleOrNull()
+            ?.get(Clusters.environment)
+            ?.takeIf { it.isNotBlank() && it != "unknown" }
+    }
+
     suspend fun findNamespaceIdByName(clusterId: Long, namespaceName: String): Long? = dbQuery {
         Namespaces
             .select(Namespaces.namespaceId)

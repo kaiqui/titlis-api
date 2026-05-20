@@ -940,4 +940,40 @@ class ScorecardRepository {
                 )
             }
     }
+
+    suspend fun getOpenFindingsByRules(tenantId: Long, ruleIds: List<String>, limit: Int): List<OpenFinding> = dbQuery {
+        (AppScorecards innerJoin Workloads innerJoin Namespaces innerJoin Clusters)
+            .join(ValidationResults, JoinType.INNER, AppScorecards.appScorecardId, ValidationResults.appScorecardId)
+            .join(ValidationRules, JoinType.INNER, ValidationResults.validationRuleId, ValidationRules.validationRuleId)
+            .select(
+                Workloads.k8sUid,
+                Workloads.workloadName,
+                Workloads.ddGitRepositoryUrl,
+                Namespaces.namespaceName,
+                Clusters.clusterName,
+                Clusters.environment,
+                ValidationRules.ruleId,
+                ValidationRules.ruleSeverity,
+            )
+            .where {
+                (AppScorecards.tenantId eq tenantId) and
+                    (ValidationRules.ruleId inList ruleIds) and
+                    (ValidationResults.rulePassed eq false) and
+                    (ValidationRules.isRemediable eq true) and
+                    (Workloads.isActive eq true)
+            }
+            .limit(limit)
+            .map {
+                OpenFinding(
+                    workloadUid    = it[Workloads.k8sUid] ?: "",
+                    deploymentName = it[Workloads.workloadName],
+                    namespace      = it[Namespaces.namespaceName],
+                    clusterName    = it[Clusters.clusterName],
+                    ruleId         = it[ValidationRules.ruleId],
+                    environment    = it[Clusters.environment],
+                    criticality    = it[ValidationRules.ruleSeverity],
+                    hasDatadog     = it[Workloads.ddGitRepositoryUrl] != null,
+                )
+            }
+    }
 }
