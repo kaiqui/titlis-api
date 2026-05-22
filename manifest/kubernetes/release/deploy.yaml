@@ -1,30 +1,55 @@
 apiVersion: v1
+kind: Namespace
+metadata:
+  name: __NAMESPACE__
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: titlis-preprod-secrets
+  namespace: __NAMESPACE__
+type: Opaque
+stringData:
+  DATABASE_URL: "__DATABASE_URL__"
+  DATABASE_MIGRATION_URL: "__DATABASE_MIGRATION_URL__"
+  DATABASE_USER: "__DATABASE_USER__"
+  DATABASE_PASSWORD: "__DATABASE_PASSWORD__"
+  DATABASE_MIGRATION_USER: "__DATABASE_MIGRATION_USER__"
+  DATABASE_MIGRATION_PASSWORD: "__DATABASE_MIGRATION_PASSWORD__"
+  TITLIS_AUTH_ACCESS_TOKEN_SECRET: "__TITLIS_AUTH_ACCESS_TOKEN_SECRET__"
+  TITLIS_OKTA_CLIENT_ID: "__TITLIS_OKTA_CLIENT_ID__"
+  TITLIS_AI_INTERNAL_SECRET: "__TITLIS_AI_INTERNAL_SECRET__"
+  TITLIS_SCOREOPS_SECRET: "__TITLIS_SCOREOPS_SECRET__"
+  TITLIS_INSIGHTS_SECRET: "__INSIGHTS_INTERNAL_SECRET__"
+  TITLIS_PRBOT_SECRET: "__TITLIS_AI_INTERNAL_SECRET__"
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: titlis-api-config
-  namespace: titlis-preprod
+  namespace: __NAMESPACE__
 data:
   PORT: "8080"
-  DB_POOL_MAX: "3"
-  TITLIS_APP_ENV: preprod
-  TITLIS_AUTH_MODE: mixed
-  TITLIS_AUTH_ISSUER: https://trial-8891784.okta.com/oauth2/aus11ip021xOHyY1d698/.well-known/oauth-authorization-server
-  TITLIS_AUTH_AUDIENCE: api://titlis
+  TITLIS_AUTH_ISSUER: "__TITLIS_AUTH_ISSUER__"
+  TITLIS_AUTH_AUDIENCE: "__TITLIS_AUTH_AUDIENCE__"
   TITLIS_AUTH_ACCESS_TOKEN_TTL_MINUTES: "720"
-  TITLIS_OKTA_ISSUER: https://trial-8891784.okta.com/oauth2/aus11ip021xOHyY1d698/.well-known/oauth-authorization-server
-  TITLIS_OKTA_AUDIENCE: api://titlis
-  TITLIS_DEV_BYPASS_ENABLED: "false"
+  TITLIS_OKTA_ISSUER: "__TITLIS_OKTA_ISSUER__"
+  TITLIS_OKTA_AUDIENCE: "__TITLIS_OKTA_AUDIENCE__"
+  TITLIS_AUTH_MODE: "__TITLIS_AUTH_MODE__"
+  TITLIS_APP_ENV: "preprod"
+  TITLIS_DEV_BYPASS_ENABLED: "__TITLIS_DEV_BYPASS_ENABLED__"
   TITLIS_UDP_PORT: "8125"
   TITLIS_UDP_WORKERS: "1"
-  TITLIS_CORS_ALLOWED_ORIGINS: http://localhost:30080
-  TITLIS_AI_URL: http://titlis-ai:8001
-
+  TITLIS_CORS_ALLOWED_ORIGINS: "http://localhost:30080"
+  DB_POOL_MAX: "3"
+  TITLIS_AI_URL: "http://titlis-ai:8001"
+  TITLIS_SCOREOPS_URL: "http://titlis-scoreops:8090"
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: titlis-api
-  namespace: titlis-preprod
+  namespace: __NAMESPACE__
 spec:
   replicas: 2
   selector:
@@ -40,17 +65,17 @@ spec:
       labels:
         app: titlis-api
         admission.datadoghq.com/enabled: "true"
-        tags.datadoghq.com/env: preprod
-        tags.datadoghq.com/service: titlis-api
-        tags.datadoghq.com/version: v3.0.0
+        tags.datadoghq.com/env: "preprod"
+        tags.datadoghq.com/service: "titlis-api"
+        tags.datadoghq.com/version: "__IMAGE_TAG__"
       annotations:
-        admission.datadoghq.com/java-lib.version: latest
+        admission.datadoghq.com/java-lib.version: "latest"
     spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: titlis-api
-          image: kailima/titlis-api:preprod-latest
-          imagePullPolicy: IfNotPresent
+          image: __DOCKERHUB_USER__/titlis-api:__IMAGE_TAG__
+          imagePullPolicy: __IMAGE_PULL_POLICY__
           ports:
             - name: http
               containerPort: 8080
@@ -69,6 +94,21 @@ spec:
                 secretKeyRef:
                   name: titlis-preprod-secrets
                   key: DATABASE_URL
+            - name: DATABASE_MIGRATION_URL
+              valueFrom:
+                secretKeyRef:
+                  name: titlis-preprod-secrets
+                  key: DATABASE_MIGRATION_URL
+            - name: DATABASE_MIGRATION_USER
+              valueFrom:
+                secretKeyRef:
+                  name: titlis-preprod-secrets
+                  key: DATABASE_MIGRATION_USER
+            - name: DATABASE_MIGRATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: titlis-preprod-secrets
+                  key: DATABASE_MIGRATION_PASSWORD
             - name: DATABASE_USER
               valueFrom:
                 secretKeyRef:
@@ -159,16 +199,36 @@ spec:
                 secretKeyRef:
                   name: titlis-preprod-secrets
                   key: TITLIS_AI_INTERNAL_SECRET
+            - name: TITLIS_SCOREOPS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: TITLIS_SCOREOPS_URL
+            - name: TITLIS_SCOREOPS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: titlis-preprod-secrets
+                  key: TITLIS_SCOREOPS_SECRET
+            - name: TITLIS_INSIGHTS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: titlis-preprod-secrets
+                  key: TITLIS_INSIGHTS_SECRET
+            - name: TITLIS_PRBOT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: titlis-preprod-secrets
+                  key: TITLIS_PRBOT_SECRET
             - name: DD_AGENT_HOST
               valueFrom:
                 fieldRef:
                   fieldPath: status.hostIP
             - name: DD_SERVICE
-              value: titlis-api
+              value: "titlis-api"
             - name: DD_ENV
-              value: preprod
+              value: "preprod"
             - name: DD_VERSION
-              value: v3.0.0
+              value: "__IMAGE_TAG__"
           resources:
             requests:
               cpu: 200m
@@ -188,13 +248,12 @@ spec:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
-
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: titlis-api
-  namespace: titlis-preprod
+  namespace: __NAMESPACE__
 spec:
   selector:
     app: titlis-api
@@ -208,13 +267,12 @@ spec:
       port: 8125
       protocol: UDP
       targetPort: udp-events
-
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: titlis-api-nodeport
-  namespace: titlis-preprod
+  namespace: __NAMESPACE__
 spec:
   selector:
     app: titlis-api
@@ -230,13 +288,12 @@ spec:
       nodePort: 30125
       protocol: UDP
       targetPort: udp-events
-
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: titlis-api
-  namespace: titlis-preprod
+  namespace: __NAMESPACE__
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
