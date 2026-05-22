@@ -38,10 +38,11 @@ data:
   TITLIS_AUTH_MODE: "__TITLIS_AUTH_MODE__"
   TITLIS_APP_ENV: "preprod"
   TITLIS_DEV_BYPASS_ENABLED: "__TITLIS_DEV_BYPASS_ENABLED__"
-  TITLIS_UDP_PORT: "8125"
-  TITLIS_UDP_WORKERS: "1"
   TITLIS_CORS_ALLOWED_ORIGINS: "http://localhost:30080"
-  DB_POOL_MAX: "3"
+  DB_POOL_MAX: "4"
+  DB_POOL_MIN_IDLE: "1"
+  DB_POOL_MAX_LIFETIME: "300000"
+  DB_POOL_CONNECTION_TIMEOUT: "10000"
   TITLIS_AI_URL: "http://titlis-ai:8001"
   TITLIS_SCOREOPS_URL: "http://titlis-scoreops:8090"
 ---
@@ -80,9 +81,6 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
-            - name: udp-events
-              containerPort: 8125
-              protocol: UDP
           env:
             - name: PORT
               valueFrom:
@@ -169,16 +167,6 @@ spec:
                 configMapKeyRef:
                   name: titlis-api-config
                   key: TITLIS_DEV_BYPASS_ENABLED
-            - name: TITLIS_UDP_PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: titlis-api-config
-                  key: TITLIS_UDP_PORT
-            - name: TITLIS_UDP_WORKERS
-              valueFrom:
-                configMapKeyRef:
-                  name: titlis-api-config
-                  key: TITLIS_UDP_WORKERS
             - name: TITLIS_CORS_ALLOWED_ORIGINS
               valueFrom:
                 configMapKeyRef:
@@ -189,6 +177,21 @@ spec:
                 configMapKeyRef:
                   name: titlis-api-config
                   key: DB_POOL_MAX
+            - name: DB_POOL_MIN_IDLE
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: DB_POOL_MIN_IDLE
+            - name: DB_POOL_MAX_LIFETIME
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: DB_POOL_MAX_LIFETIME
+            - name: DB_POOL_CONNECTION_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: titlis-api-config
+                  key: DB_POOL_CONNECTION_TIMEOUT
             - name: TITLIS_AI_URL
               valueFrom:
                 configMapKeyRef:
@@ -263,10 +266,6 @@ spec:
       port: 8080
       protocol: TCP
       targetPort: http
-    - name: udp-events
-      port: 8125
-      protocol: UDP
-      targetPort: udp-events
 ---
 apiVersion: v1
 kind: Service
@@ -283,11 +282,6 @@ spec:
       nodePort: 30081
       protocol: TCP
       targetPort: http
-    - name: udp-events
-      port: 8125
-      nodePort: 30125
-      protocol: UDP
-      targetPort: udp-events
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

@@ -27,43 +27,6 @@ class EventRouter(
     private val logger = LoggerFactory.getLogger(EventRouter::class.java)
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun route(payload: ByteArray) {
-        val raw = payload.decodeToString()
-        val normalized = raw.trimStart()
-        if (!normalized.startsWith("{")) {
-            logger.debug("Ignoring non-JSON UDP payload")
-            return
-        }
-
-        val envelope = runCatching { json.decodeFromString<UdpEnvelope>(normalized) }
-            .getOrElse {
-                logger.warn("Invalid UDP envelope: ${raw.take(200)}")
-                return
-            }
-
-        if (envelope.v != 1) {
-            logger.warn("Unsupported protocol version ${envelope.v}")
-            return
-        }
-
-        if (envelope.apiKey == null) {
-            logger.warn("UDP evento descartado: envelope sem api_key [tipo=${envelope.t}]")
-            return
-        }
-
-        val tenantId = apiKeyRepo.resolveByToken(envelope.apiKey)
-        if (tenantId == null) {
-            logger.warn("UDP evento descartado: api_key inválida ou revogada [prefix=${envelope.apiKey.take(12)}]")
-            return
-        }
-
-        scope.launch(Dispatchers.IO) {
-            apiKeyRepo.updateLastUsedAtAsync(envelope.apiKey)
-        }
-
-        dispatchEvent(envelope, tenantId)
-    }
-
     fun routeHttp(envelope: UdpEnvelope, tenantId: Long, rawApiKey: String) {
         scope.launch(Dispatchers.IO) {
             apiKeyRepo.updateLastUsedAtAsync(rawApiKey)

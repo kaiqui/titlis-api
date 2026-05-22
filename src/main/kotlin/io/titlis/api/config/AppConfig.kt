@@ -20,13 +20,6 @@ data class DatabaseMigrationConfig(
     val password: String,
 )
 
-data class UdpConfig(
-    val port: Int,
-    val bufferSize: Int,
-    val workers: Int,
-    val queueSize: Int,
-)
-
 data class AuthConfig(
     val appEnv: String,
     val issuer: String,
@@ -66,7 +59,6 @@ data class InsightsConfig(
 data class AppConfig(
     val database: DatabaseConfig,
     val databaseMigration: DatabaseMigrationConfig,
-    val udp: UdpConfig,
     val auth: AuthConfig,
     val corsAllowedOrigins: List<String>,
     val aiService: AiServiceConfig,
@@ -77,7 +69,6 @@ data class AppConfig(
     companion object {
         fun from(config: ApplicationConfig): AppConfig {
             val db = config.config("titlis.database")
-            val udp = config.config("titlis.udp")
             val auth = config.config("titlis.auth")
             return AppConfig(
                 database = DatabaseConfig(
@@ -154,32 +145,6 @@ data class AppConfig(
                         env = "DATABASE_MIGRATION_PASSWORD",
                         default = "titlis",
                     ),
-                ),
-                udp = UdpConfig(
-                    port = propertyOrEnv(
-                        config = udp,
-                        path = "port",
-                        env = "TITLIS_UDP_PORT",
-                        default = "8125",
-                    ).toInt(),
-                    bufferSize = propertyOrEnv(
-                        config = udp,
-                        path = "bufferSize",
-                        env = "TITLIS_UDP_BUFFER_SIZE",
-                        default = "65507",
-                    ).toInt(),
-                    workers = propertyOrEnv(
-                        config = udp,
-                        path = "workers",
-                        env = "TITLIS_UDP_WORKERS",
-                        default = "4",
-                    ).toInt(),
-                    queueSize = propertyOrEnv(
-                        config = udp,
-                        path = "queueSize",
-                        env = "TITLIS_UDP_QUEUE_SIZE",
-                        default = "10000",
-                    ).toInt(),
                 ),
                 corsAllowedOrigins = propertyOrEnv(
                     config = config,

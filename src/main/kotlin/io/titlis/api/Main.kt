@@ -58,7 +58,6 @@ import io.titlis.api.routes.settingsInsightsRoutes
 import io.titlis.api.routes.settingsPrbotRoutes
 import io.titlis.api.routes.sloRoutes
 import io.titlis.api.udp.EventRouter
-import io.titlis.api.udp.UdpServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -98,9 +97,7 @@ fun Application.module() {
     val requestAuthenticator = RequestAuthenticator(config.auth, authRepo, tokenService, oktaVerifier)
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val router    = EventRouter(scorecardRepo, remediationRepo, sloRepo, metricsRepo, apiKeyRepo, scope, campaignRepo)
-    val udpServer = UdpServer(config.udp, router)
-    udpServer.start(scope)
+    val router = EventRouter(scorecardRepo, remediationRepo, sloRepo, metricsRepo, apiKeyRepo, scope, campaignRepo)
 
     install(CallLogging) {
         level = Level.INFO

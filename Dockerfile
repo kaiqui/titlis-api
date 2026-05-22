@@ -21,6 +21,6 @@ COPY --from=dd-download /dd-java-agent.jar /app/dd-java-agent.jar
 
 ENV JAVA_TOOL_OPTIONS="-Xms64m -Xmx256m -XX:MaxMetaspaceSize=128m -Xss512k -XX:+ExitOnOutOfMemoryError -javaagent:/app/dd-java-agent.jar"
 
-EXPOSE 8080 8125/udp
+EXPOSE 8080
 
 ENTRYPOINT ["./titlis-api/bin/titlis-api"]
