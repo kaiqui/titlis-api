@@ -40,7 +40,7 @@ CREATE TYPE titlis_oltp.service_tier AS ENUM (
 );
 
 CREATE TYPE titlis_oltp.validation_pillar AS ENUM (
-    'RESILIENCE', 'SECURITY', 'COST', 'PERFORMANCE', 'OPERATIONAL', 'COMPLIANCE'
+    'RESILIENCE', 'SECURITY', 'COST', 'PERFORMANCE', 'OPERATIONAL', 'COMPLIANCE', 'OBSERVABILITY'
 );
 
 CREATE TYPE titlis_oltp.validation_severity AS ENUM (

@@ -6,7 +6,9 @@ import io.titlis.api.database.tables.Namespaces
 import io.titlis.api.database.tables.SloComplianceHistory
 import io.titlis.api.database.tables.SloConfigPendingChanges
 import io.titlis.api.database.tables.SloConfigs
+import io.titlis.api.database.tables.Workloads
 import io.titlis.api.domain.SloReconciledEvent
+import org.jetbrains.exposed.sql.JoinType
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.andWhere
@@ -123,20 +125,22 @@ class SloRepository {
 
         query.map { row ->
             mapOf(
-                "slo_config_id" to row[SloConfigs.sloConfigId],
-                "name" to row[SloConfigs.sloConfigName],
-                "namespace" to row[Namespaces.namespaceName],
-                "cluster" to row[Clusters.clusterName],
-                "environment" to row[Clusters.environment],
-                "slo_type" to row[SloConfigs.sloType],
-                "timeframe" to row[SloConfigs.timeframe],
-                "target" to row[SloConfigs.target],
-                "warning" to row[SloConfigs.warning],
-                "datadog_slo_id" to row[SloConfigs.datadogSloId],
-                "datadog_slo_state" to row[SloConfigs.datadogSloState],
+                "slo_config_id"      to row[SloConfigs.sloConfigId],
+                "name"               to row[SloConfigs.sloConfigName],
+                "namespace"          to row[Namespaces.namespaceName],
+                "cluster"            to row[Clusters.clusterName],
+                "environment"        to row[Clusters.environment],
+                "slo_type"           to row[SloConfigs.sloType],
+                "timeframe"          to row[SloConfigs.timeframe],
+                "target"             to row[SloConfigs.target],
+                "warning"            to row[SloConfigs.warning],
+                "datadog_slo_id"     to row[SloConfigs.datadogSloId],
+                "datadog_slo_state"  to row[SloConfigs.datadogSloState],
                 "detected_framework" to row[SloConfigs.detectedFramework],
-                "detection_source" to row[SloConfigs.detectionSource],
-                "last_sync_at" to row[SloConfigs.lastSyncAt]?.toString(),
+                "detection_source"   to row[SloConfigs.detectionSource],
+                "last_sync_at"       to row[SloConfigs.lastSyncAt]?.toString(),
+                "sync_error"         to row[SloConfigs.syncError],
+                "auto_detect_framework" to row[SloConfigs.autoDetectFramework],
             )
         }
     }
@@ -282,5 +286,99 @@ class SloRepository {
                     (Namespaces.namespaceName eq namespaceNameValue)
             }
             .single()[Namespaces.namespaceId]
+    }
+
+    /**
+     * Returns coverage data for all active workloads of a tenant.
+     * Each workload is classified as:
+     *   WITH_SLO   — has at least one slo_config entry
+     *   CANDIDATE  — dd_git_repository_url != null (registered in Datadog), but no slo_config
+     *   NO_DATADOG — dd_git_repository_url = null and no slo_config
+     *
+     * Ordered: workloads without SLO first (CANDIDATE before NO_DATADOG), then alphabetically.
+     */
+    suspend fun coverage(tenantId: Long): List<Map<String, Any?>> = dbQuery {
+        Workloads
+            .join(Namespaces, JoinType.INNER, Workloads.namespaceId, Namespaces.namespaceId)
+            .join(Clusters, JoinType.INNER, Namespaces.clusterId, Clusters.clusterId)
+            .join(SloConfigs, JoinType.LEFT,
+                onColumn = Workloads.namespaceId,
+                otherColumn = SloConfigs.namespaceId,
+                additionalConstraint = { SloConfigs.tenantId eq tenantId },
+            )
+            .select(
+                Workloads.workloadId,
+                Workloads.workloadName,
+                Workloads.k8sUid,
+                Workloads.ddGitRepositoryUrl,
+                Namespaces.namespaceName,
+                Clusters.clusterName,
+                Clusters.environment,
+                SloConfigs.sloConfigId,
+                SloConfigs.datadogSloState,
+                SloConfigs.lastSyncAt,
+            )
+            .where { (Clusters.tenantId eq tenantId) and (Workloads.isActive eq true) }
+            .orderBy(SloConfigs.sloConfigId, SortOrder.ASC_NULLS_FIRST)
+            .orderBy(Workloads.workloadName, SortOrder.ASC)
+            .map { row ->
+                // LEFT JOIN: sloConfigId is null when no SLO config exists for this namespace.
+                // row.getOrNull() avoids the "condition always true" warning from the compiler.
+                val sloConfigId = runCatching { row[SloConfigs.sloConfigId] }.getOrNull()
+                val hasSlo      = sloConfigId != null
+                val hasDatadog  = row[Workloads.ddGitRepositoryUrl] != null
+                val sloStatus   = when {
+                    hasSlo     -> "WITH_SLO"
+                    hasDatadog -> "CANDIDATE"
+                    else       -> "NO_DATADOG"
+                }
+                mapOf(
+                    "workload_id"           to row[Workloads.workloadId].toString(),
+                    "name"                  to row[Workloads.workloadName],
+                    "k8s_uid"               to row[Workloads.k8sUid],
+                    "namespace"             to row[Namespaces.namespaceName],
+                    "cluster"               to row[Clusters.clusterName],
+                    "environment"           to row[Clusters.environment],
+                    "slo_status"            to sloStatus,
+                    "slo_config_id"         to sloConfigId?.toString(),
+                    "datadog_slo_state"     to row.getOrNull(SloConfigs.datadogSloState),
+                    "last_sync_at"          to row.getOrNull(SloConfigs.lastSyncAt)?.toString(),
+                    "dd_git_repository_url" to row[Workloads.ddGitRepositoryUrl],
+                )
+            }
+            .distinctBy { it["k8s_uid"] } // deduplicate when workload has multiple SLOs
+    }
+
+    /**
+     * Returns a pair of (hasSlo, sloHealthy) for the given namespace.
+     * hasSlo = at least one slo_config row exists for the namespace.
+     * sloHealthy = at least one slo_config has datadog_slo_state = 'synced' (not 'error').
+     * Returns (false, false) quickly when the namespace_id is unknown (workload not yet registered).
+     */
+    suspend fun sloPresenceForNamespace(
+        clusterName: String,
+        namespaceName: String,
+        tenantId: Long,
+    ): Pair<Boolean, Boolean> = dbQuery {
+        val clusterId = Clusters
+            .select(Clusters.clusterId)
+            .where { (Clusters.clusterName eq clusterName) and (Clusters.tenantId eq tenantId) }
+            .singleOrNull()
+            ?.get(Clusters.clusterId) ?: return@dbQuery Pair(false, false)
+
+        val namespaceId = Namespaces
+            .select(Namespaces.namespaceId)
+            .where { (Namespaces.clusterId eq clusterId) and (Namespaces.namespaceName eq namespaceName) }
+            .singleOrNull()
+            ?.get(Namespaces.namespaceId) ?: return@dbQuery Pair(false, false)
+
+        val rows = SloConfigs
+            .select(SloConfigs.datadogSloState)
+            .where { (SloConfigs.namespaceId eq namespaceId) and (SloConfigs.tenantId eq tenantId) }
+            .toList()
+
+        val hasSlo = rows.isNotEmpty()
+        val sloHealthy = rows.any { it[SloConfigs.datadogSloState] == "synced" }
+        Pair(hasSlo, sloHealthy)
     }
 }

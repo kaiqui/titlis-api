@@ -35,6 +35,8 @@ private val AI_RECORD = TenantAiConfigRecord(
     monthlyTokenBudget = 100_000,
     tokensUsedMonth = 0,
     isActive = true,
+    ddApiKeyEnc = null,
+    ddAppKeyEnc = null,
     createdAt = OffsetDateTime.now(ZoneOffset.UTC),
     updatedAt = OffsetDateTime.now(ZoneOffset.UTC),
 )

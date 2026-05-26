@@ -9,44 +9,58 @@ import io.ktor.server.routing.*
 import io.titlis.api.auth.AppPrincipal
 import io.titlis.api.auth.protectedProviderNames
 import io.titlis.api.auth.requireAdminPrincipal
-import io.titlis.api.config.InsightsClient
+import io.titlis.api.repository.AiConfigRepository
+import kotlinx.serialization.Serializable
+
+// titlis-insights foi descontinuado. Credenciais Datadog são armazenadas na titlis-api
+// e entregues ao titlis-ai via GET /v1/internal/ai/datadog-config para uso com MCP Datadog.
+// Endpoints de HPA templates e probe direto foram removidos (410 Gone).
+
+private val goneInsights = mapOf(
+    "error" to "gone",
+    "message" to "Funcionalidade descontinuada. Configure as credenciais Datadog em /v1/settings/datadog.",
+)
+
+@Serializable
+data class SaveDatadogCredsRequest(
+    val ddApiKey: String,
+    val ddAppKey: String? = null,
+)
 
 fun Application.settingsInsightsRoutes(
-    insightsClient: InsightsClient,
+    aiConfigRepo: AiConfigRepository,
 ) {
     routing {
         authenticate(*protectedProviderNames("app-auth", "okta-jwt")) {
-            get("/v1/settings/hpa-templates") {
-                val principal = call.principal<AppPrincipal>() ?: return@get call.respond(HttpStatusCode.Unauthorized)
-                val (status, body) = insightsClient.proxy("GET", "/v1/tenants/${principal.tenantId}/hpa-templates", null)
-                call.respond(HttpStatusCode.fromValue(status), body)
-            }
 
-            put("/v1/settings/hpa-templates") {
-                val principal = call.requireAdminPrincipal() ?: return@put
-                val reqBody = call.receiveText()
-                val (status, body) = insightsClient.proxy("PUT", "/v1/tenants/${principal.tenantId}/hpa-templates", reqBody)
-                call.respond(HttpStatusCode.fromValue(status), body)
-            }
+            // ── Descontinuados (410 Gone) ────────────────────────────────────────
+            get("/v1/settings/hpa-templates")              { call.respond(HttpStatusCode.Gone, goneInsights) }
+            put("/v1/settings/hpa-templates")              { call.respond(HttpStatusCode.Gone, goneInsights) }
+            get("/v1/insights/recommendations/hpa/preview") { call.respond(HttpStatusCode.Gone, goneInsights) }
+            get("/v1/insights/datadog/probe")              { call.respond(HttpStatusCode.Gone, goneInsights) }
 
-            get("/v1/insights/recommendations/hpa/preview") {
-                val principal = call.principal<AppPrincipal>() ?: return@get call.respond(HttpStatusCode.Unauthorized)
-                val workloadUid = call.request.queryParameters["workload_uid"]
-                    ?: return@get call.respond(HttpStatusCode.BadRequest)
-                val environment = call.request.queryParameters["environment"] ?: "prd"
-                val criticality = call.request.queryParameters["criticality"] ?: "medium"
-                val (status, body) = insightsClient.proxy(
-                    "GET",
-                    "/v1/recommendations/hpa?tenant_id=${principal.tenantId}&workload_uid=$workloadUid&environment=$environment&criticality=$criticality",
-                    null,
+            // ── Credenciais Datadog — write-only, armazenadas localmente ─────────
+            post("/v1/settings/datadog") {
+                val principal = call.requireAdminPrincipal() ?: return@post
+                val req = call.receive<SaveDatadogCredsRequest>()
+                if (req.ddApiKey.isBlank()) {
+                    return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "dd_api_key_required"))
+                }
+                aiConfigRepo.upsertDatadogCreds(
+                    tenantId    = principal.tenantId,
+                    ddApiKeyEnc = req.ddApiKey,
+                    ddAppKeyEnc = req.ddAppKey?.takeIf { it.isNotBlank() },
                 )
-                call.respond(HttpStatusCode.fromValue(status), body)
+                call.respond(HttpStatusCode.OK, mapOf("status" to "saved"))
             }
 
-            get("/v1/insights/datadog/probe") {
+            // Retorna apenas se as credenciais estão configuradas (sem probe ao vivo).
+            get("/v1/settings/datadog/status") {
                 val principal = call.requireAdminPrincipal() ?: return@get
-                val (status, body) = insightsClient.proxy("GET", "/v1/datadog/probe?tenant_id=${principal.tenantId}", null)
-                call.respond(HttpStatusCode.fromValue(status), body)
+                val creds = aiConfigRepo.getDDCredentials(principal.tenantId)
+                call.respondJson(
+                    mapOf("configured" to (creds != null), "probeStatus" to if (creds != null) "not_checked" else "not_configured")
+                )
             }
         }
     }

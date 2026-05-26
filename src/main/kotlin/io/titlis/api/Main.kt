@@ -33,8 +33,6 @@ import io.titlis.api.repository.SloRepository
 import io.titlis.api.repository.TagRepository
 import io.titlis.api.auth.PasswordHasher
 import io.titlis.api.auth.RequestAuthenticator
-import io.titlis.api.config.InsightsClient
-import io.titlis.api.config.PrbotClient
 import io.titlis.api.config.ScoreopsClient
 import io.titlis.api.routes.aiConfigRoutes
 import io.titlis.api.routes.aiRoutes
@@ -56,6 +54,8 @@ import io.titlis.api.routes.operatorRoutes
 import io.titlis.api.routes.operatorScoringRoutes
 import io.titlis.api.routes.settingsInsightsRoutes
 import io.titlis.api.routes.settingsPrbotRoutes
+import io.titlis.api.routes.internalInsightsRoutes
+
 import io.titlis.api.routes.sloRoutes
 import io.titlis.api.udp.EventRouter
 import kotlinx.coroutines.CoroutineScope
@@ -90,8 +90,6 @@ fun Application.module() {
     val passwordHasher   = PasswordHasher()
     val authRepo         = AuthRepository(passwordHasher)
     val scoreopsClient   = ScoreopsClient(config.scoreops.url, config.scoreops.secret)
-    val prbotClient      = PrbotClient(config.prbot.url, config.prbot.secret)
-    val insightsClient   = InsightsClient(config.insights.url, config.insights.secret)
     val tokenService    = LocalTokenService(config.auth)
     val oktaVerifier    = OktaTokenVerifier(config.auth)
     val requestAuthenticator = RequestAuthenticator(config.auth, authRepo, tokenService, oktaVerifier)
@@ -156,17 +154,18 @@ fun Application.module() {
     remediationRoutes(remediationRepo, requestAuthenticator)
     sloRoutes(sloRepo, requestAuthenticator)
     operatorRoutes(sloRepo, apiKeyRepo, router, requestAuthenticator)
-    aiConfigRoutes(aiConfigRepo, prbotClient, requestAuthenticator)
+    aiConfigRoutes(aiConfigRepo, requestAuthenticator)
     aiRoutes(scorecardRepo, aiConfigRepo, config, requestAuthenticator)
     ragRoutes(knowledgeRepo, config.aiService.internalSecret)
-    internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, config.aiService.internalSecret)
+    internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, aiConfigRepo, config.aiService.internalSecret)
     settingsScoreConfigRoutes(scoreopsClient, scoreConfigRepo, requestAuthenticator)
     settingsTagsRoutes(tagRepo)
     settingsTagPoliciesRoutes(scoreopsClient, requestAuthenticator)
-    operatorScoringRoutes(scoreopsClient, apiKeyRepo, tagRepo, scope)
-    bulkPrCampaignRoutes(campaignRepo, prbotClient)
-    settingsPrbotRoutes(prbotClient)
-    settingsInsightsRoutes(insightsClient)
-    internalPrbotRoutes(scorecardRepo, aiConfigRepo, config.prbot.secret, router, config.aiService.url, config.aiService.internalSecret)
+    operatorScoringRoutes(scoreopsClient, apiKeyRepo, tagRepo, sloRepo, scope)
+    bulkPrCampaignRoutes(campaignRepo)
+    settingsPrbotRoutes()
+    settingsInsightsRoutes(aiConfigRepo)
+    internalInsightsRoutes(aiConfigRepo, config.aiService.internalSecret)
+    internalPrbotRoutes(scorecardRepo, aiConfigRepo, config.aiService.internalSecret)
     internalScorecardRoutes(scorecardRepo, remediationRepo, config.scoreops.secret)
 }

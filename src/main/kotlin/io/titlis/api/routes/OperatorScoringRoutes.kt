@@ -11,6 +11,7 @@ import io.ktor.server.routing.routing
 import io.titlis.api.config.ScoreopsClient
 import io.titlis.api.dto.WorkloadSnapshotDTO
 import io.titlis.api.repository.ApiKeyRepository
+import io.titlis.api.repository.SloRepository
 import io.titlis.api.repository.TagRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -20,6 +21,7 @@ fun Application.operatorScoringRoutes(
     scoreopsClient: ScoreopsClient,
     apiKeyRepo: ApiKeyRepository,
     tagRepo: TagRepository,
+    sloRepo: SloRepository,
     scope: CoroutineScope,
 ) {
     val log = LoggerFactory.getLogger("OperatorScoringRoutes")
@@ -31,9 +33,13 @@ fun Application.operatorScoringRoutes(
                         HttpStatusCode.Unauthorized,
                         mapOf("error" to "invalid_api_key"),
                     )
-                val snapshot = call.receive<WorkloadSnapshotDTO>()
+                val base = call.receive<WorkloadSnapshotDTO>()
                     .withTenant(tenantId)
                     .withEnrichedTags(tenantId, tagRepo)
+                val (hasSlo, sloHealthy) = sloRepo.sloPresenceForNamespace(
+                    base.cluster, base.namespace, tenantId,
+                )
+                val snapshot = base.withSloPresence(hasSlo, sloHealthy)
 
                 call.respond(HttpStatusCode.Accepted)
                 scope.launch {

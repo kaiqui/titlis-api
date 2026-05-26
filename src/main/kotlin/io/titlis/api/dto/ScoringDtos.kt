@@ -41,11 +41,20 @@ data class WorkloadSnapshotDTO(
     @SerialName("cluster_tags") val clusterTags: List<String> = emptyList(),
     @SerialName("namespace_tags") val namespaceTags: List<String> = emptyList(),
     val environment: String = "",
+    // has_datadog is set by the operator from Datadog Unified Service Tagging labels.
+    // Passed through here unchanged; scoreops uses it as a skip condition for OBS-001/002.
+    @SerialName("has_datadog") val hasDatadog: Boolean = false,
+    // SLO presence fields injected by titlis-api from slo_configs table before forwarding to scoreops.
+    @SerialName("has_slo") val hasSlo: Boolean = false,
+    @SerialName("slo_healthy") val sloHealthy: Boolean = false,
 ) {
     fun withTenant(tenantId: Long) = copy(tenantId = tenantId)
 
     fun withTags(clusterTags: List<String>, namespaceTags: List<String>, environment: String) =
         copy(clusterTags = clusterTags, namespaceTags = namespaceTags, environment = environment)
+
+    fun withSloPresence(hasSlo: Boolean, sloHealthy: Boolean) =
+        copy(hasSlo = hasSlo, sloHealthy = sloHealthy)
 }
 
 @Serializable

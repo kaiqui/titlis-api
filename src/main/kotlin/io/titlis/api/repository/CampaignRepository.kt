@@ -2,6 +2,8 @@ package io.titlis.api.repository
 
 import io.titlis.api.database.DatabaseFactory.dbQuery
 import io.titlis.api.database.tables.EventStorePrCampaign
+import io.titlis.api.database.tables.PrCampaignEnvSteps
+import io.titlis.api.database.tables.PrCampaignItems
 import io.titlis.api.database.tables.PrCampaigns
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.ResultRow
@@ -12,6 +14,33 @@ import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.update
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+
+@Serializable
+data class EnvStepDetail(
+    val stepId: Long,
+    val environment: String,
+    val status: String,
+    val prNumber: Int?,
+    val prUrl: String?,
+    val startedAt: String?,
+    val finishedAt: String?,
+)
+
+@Serializable
+data class CampaignItemDetail(
+    val itemId: Long,
+    val workloadId: String,
+    val deploymentName: String,
+    val namespace: String,
+    val clusterName: String,
+    val repoUrl: String,
+    val cascadeUpTo: String,
+    val status: String,
+    val errorMessage: String?,
+    val startedAt: String?,
+    val finishedAt: String?,
+    val envSteps: List<EnvStepDetail>,
+)
 
 @Serializable
 data class CampaignSummary(
@@ -152,6 +181,64 @@ class CampaignRepository {
             it[EventStorePrCampaign.occurredAt]  = now
             it[EventStorePrCampaign.createdAt]   = now
         }
+    }
+
+    suspend fun listItems(campaignId: String, tenantId: Long): List<CampaignItemDetail> = dbQuery {
+        PrCampaignItems
+            .leftJoin(PrCampaignEnvSteps)
+            .select(
+                PrCampaignItems.prCampaignItemId, PrCampaignItems.workloadId,
+                PrCampaignItems.deploymentName, PrCampaignItems.namespace,
+                PrCampaignItems.clusterName, PrCampaignItems.repoUrl,
+                PrCampaignItems.cascadeUpTo, PrCampaignItems.status,
+                PrCampaignItems.errorMessage, PrCampaignItems.startedAt,
+                PrCampaignItems.finishedAt,
+                PrCampaignEnvSteps.prCampaignEnvStepId, PrCampaignEnvSteps.environment,
+                PrCampaignEnvSteps.status, PrCampaignEnvSteps.prNumber,
+                PrCampaignEnvSteps.prUrl, PrCampaignEnvSteps.startedAt,
+                PrCampaignEnvSteps.finishedAt,
+            )
+            .where {
+                (PrCampaignItems.prCampaignId eq campaignId) and
+                (PrCampaignItems.tenantId eq tenantId)
+            }
+            .orderBy(PrCampaignItems.prCampaignItemId, SortOrder.ASC)
+            .let { rows ->
+                val grouped = LinkedHashMap<Long, Pair<ResultRow, MutableList<ResultRow>>>()
+                for (row in rows) {
+                    val itemId = row[PrCampaignItems.prCampaignItemId]
+                    grouped.getOrPut(itemId) { Pair(row, mutableListOf()) }
+                    if (row.getOrNull(PrCampaignEnvSteps.prCampaignEnvStepId) != null) {
+                        grouped[itemId]!!.second.add(row)
+                    }
+                }
+                grouped.values.map { (itemRow, stepRows) ->
+                    CampaignItemDetail(
+                        itemId         = itemRow[PrCampaignItems.prCampaignItemId],
+                        workloadId     = itemRow[PrCampaignItems.workloadId],
+                        deploymentName = itemRow[PrCampaignItems.deploymentName],
+                        namespace      = itemRow[PrCampaignItems.namespace],
+                        clusterName    = itemRow[PrCampaignItems.clusterName],
+                        repoUrl        = itemRow[PrCampaignItems.repoUrl],
+                        cascadeUpTo    = itemRow[PrCampaignItems.cascadeUpTo],
+                        status         = itemRow[PrCampaignItems.status],
+                        errorMessage   = itemRow[PrCampaignItems.errorMessage],
+                        startedAt      = itemRow[PrCampaignItems.startedAt]?.toString(),
+                        finishedAt     = itemRow[PrCampaignItems.finishedAt]?.toString(),
+                        envSteps       = stepRows.sortedBy { it[PrCampaignEnvSteps.prCampaignEnvStepId] }.map { step ->
+                            EnvStepDetail(
+                                stepId      = step[PrCampaignEnvSteps.prCampaignEnvStepId],
+                                environment = step[PrCampaignEnvSteps.environment],
+                                status      = step[PrCampaignEnvSteps.status],
+                                prNumber    = step[PrCampaignEnvSteps.prNumber],
+                                prUrl       = step[PrCampaignEnvSteps.prUrl],
+                                startedAt   = step[PrCampaignEnvSteps.startedAt]?.toString(),
+                                finishedAt  = step[PrCampaignEnvSteps.finishedAt]?.toString(),
+                            )
+                        },
+                    )
+                }
+            }
     }
 
     private fun mapCampaign(row: ResultRow) = CampaignSummary(

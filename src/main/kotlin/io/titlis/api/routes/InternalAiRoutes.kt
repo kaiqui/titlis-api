@@ -9,6 +9,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import io.titlis.api.repository.AiConfigRepository
 import io.titlis.api.repository.RemediationRepository
 import io.titlis.api.repository.ScorecardRepository
 import io.titlis.api.repository.SloRepository
@@ -39,6 +40,7 @@ fun Application.internalAiRoutes(
     scorecardRepo: ScorecardRepository,
     remediationRepo: RemediationRepository,
     sloRepo: SloRepository,
+    aiConfigRepo: AiConfigRepository,
     internalSecret: String,
 ) {
     routing {
@@ -144,6 +146,22 @@ fun Application.internalAiRoutes(
                     findingIds     = body.findingIds,
                 )
                 call.respond(HttpStatusCode.NoContent)
+            }
+
+            get("/datadog-config") {
+                val secret = call.request.headers["X-Internal-Secret"] ?: ""
+                if (secret != internalSecret) {
+                    call.respond(HttpStatusCode.Forbidden, buildJsonObject { put("error", "internal_secret_invalid") })
+                    return@get
+                }
+                val tenantId = call.request.queryParameters["tenantId"]?.toLongOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, buildJsonObject { put("error", "tenantId required") })
+                val creds = aiConfigRepo.getDDCredentials(tenantId)
+                    ?: return@get call.respond(HttpStatusCode.NotFound, buildJsonObject { put("configured", false) })
+                call.respond(buildJsonObject {
+                    put("ddApiKey", creds.ddApiKey)
+                    put("ddAppKey", creds.ddAppKey)
+                })
             }
 
             post("/slo-configs/{id}/propose-change") {

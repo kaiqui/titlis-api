@@ -46,16 +46,6 @@ data class ScoreopsConfig(
     val secret: String,
 )
 
-data class PrbotConfig(
-    val url: String,
-    val secret: String,
-)
-
-data class InsightsConfig(
-    val url: String,
-    val secret: String,
-)
-
 data class AppConfig(
     val database: DatabaseConfig,
     val databaseMigration: DatabaseMigrationConfig,
@@ -63,8 +53,6 @@ data class AppConfig(
     val corsAllowedOrigins: List<String>,
     val aiService: AiServiceConfig,
     val scoreops: ScoreopsConfig,
-    val prbot: PrbotConfig,
-    val insights: InsightsConfig,
 ) {
     companion object {
         fun from(config: ApplicationConfig): AppConfig {
@@ -178,34 +166,6 @@ data class AppConfig(
                         path = "titlis.scoreops.secret",
                         env = "TITLIS_SCOREOPS_SECRET",
                         default = "titlis-ai-internal-secret-dev",
-                    ),
-                ),
-                prbot = PrbotConfig(
-                    url = propertyOrEnv(
-                        config = config,
-                        path = "titlis.prbot.url",
-                        env = "TITLIS_PRBOT_URL",
-                        default = "http://titlis-prbot:8080",
-                    ),
-                    secret = propertyOrEnv(
-                        config = config,
-                        path = "titlis.prbot.secret",
-                        env = "TITLIS_PRBOT_SECRET",
-                        default = "titlis-prbot-internal-secret-dev",
-                    ),
-                ),
-                insights = InsightsConfig(
-                    url = propertyOrEnv(
-                        config = config,
-                        path = "titlis.insights.url",
-                        env = "TITLIS_INSIGHTS_URL",
-                        default = "http://titlis-insights:8091",
-                    ),
-                    secret = propertyOrEnv(
-                        config = config,
-                        path = "titlis.insights.secret",
-                        env = "TITLIS_INSIGHTS_SECRET",
-                        default = "titlis-insights-internal-secret-dev",
                     ),
                 ),
                 auth = AuthConfig(

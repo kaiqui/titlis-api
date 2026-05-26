@@ -3,66 +3,29 @@ package io.titlis.api.routes
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
-import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.titlis.api.auth.AppPrincipal
 import io.titlis.api.auth.protectedProviderNames
-import io.titlis.api.auth.requireAdminPrincipal
-import io.titlis.api.config.PrbotClient
 
-fun Application.settingsPrbotRoutes(
-    prbotClient: PrbotClient,
-) {
+// titlis-prbot foi descontinuado. Remediações via GitHub agora são realizadas
+// de forma conversacional pelo titlis-ai usando MCP GitHub.
+// Todos os endpoints retornam 410 Gone.
+
+private val goneBody = mapOf(
+    "error" to "gone",
+    "message" to "Funcionalidade descontinuada. Use o assistente IA para configurar remediações.",
+)
+
+fun Application.settingsPrbotRoutes() {
     routing {
         authenticate(*protectedProviderNames("app-auth", "okta-jwt")) {
-            get("/v1/settings/auto-remediation") {
-                val principal = call.principal<AppPrincipal>() ?: return@get call.respond(HttpStatusCode.Unauthorized)
-                val (status, body) = prbotClient.proxy("GET", "/v1/tenants/${principal.tenantId}/policies?rule_id=PERF-004", null)
-                if (status == 200) {
-                    call.respond(HttpStatusCode.OK, "[$body]")
-                } else {
-                    call.respond(HttpStatusCode.OK, "[]")
-                }
-            }
-
-            put("/v1/settings/auto-remediation") {
-                val principal = call.requireAdminPrincipal() ?: return@put
-                val reqBody = call.receiveText()
-                val (status, body) = prbotClient.proxy("PUT", "/v1/tenants/${principal.tenantId}/policies", reqBody)
-                call.respond(HttpStatusCode.fromValue(status), body)
-            }
-
-            get("/v1/settings/gitops-profiles") {
-                val principal = call.principal<AppPrincipal>() ?: return@get call.respond(HttpStatusCode.Unauthorized)
-                val (status, body) = prbotClient.proxy("GET", "/v1/gitops-profiles?tenant_id=${principal.tenantId}", null)
-                call.respond(HttpStatusCode.fromValue(status), body)
-            }
-
-            put("/v1/settings/gitops-profiles") {
-                call.requireAdminPrincipal() ?: return@put
-                val reqBody = call.receiveText()
-                val (status, body) = prbotClient.proxy("PUT", "/v1/gitops-profiles", reqBody)
-                call.respond(HttpStatusCode.fromValue(status), body)
-            }
-
-            get("/v1/mappings") {
-                val principal = call.principal<AppPrincipal>() ?: return@get call.respond(HttpStatusCode.Unauthorized)
-                val (status, body) = prbotClient.proxy("GET", "/v1/mappings?tenant_id=${principal.tenantId}", null)
-                call.respond(HttpStatusCode.fromValue(status), body)
-            }
-
-            post("/v1/mappings/refresh") {
-                val principal = call.requireAdminPrincipal() ?: return@post
-                val (status, body) = prbotClient.proxy("POST", "/v1/mappings/refresh?tenant_id=${principal.tenantId}", null)
-                call.respond(HttpStatusCode.fromValue(status), body)
-            }
-
-            get("/v1/settings/github-app/install-url") {
-                val principal = call.requireAdminPrincipal() ?: return@get
-                val (status, body) = prbotClient.proxy("GET", "/v1/github-app/install-url?tenant_id=${principal.tenantId}", null)
-                call.respond(HttpStatusCode.fromValue(status), body)
-            }
+            get("/v1/settings/auto-remediation")          { call.respond(HttpStatusCode.Gone, goneBody) }
+            put("/v1/settings/auto-remediation")          { call.respond(HttpStatusCode.Gone, goneBody) }
+            get("/v1/settings/gitops-profiles")           { call.respond(HttpStatusCode.Gone, goneBody) }
+            put("/v1/settings/gitops-profiles")           { call.respond(HttpStatusCode.Gone, goneBody) }
+            get("/v1/mappings")                           { call.respond(HttpStatusCode.Gone, goneBody) }
+            post("/v1/mappings/refresh")                  { call.respond(HttpStatusCode.Gone, goneBody) }
+            get("/v1/settings/github-app/install-url")   { call.respond(HttpStatusCode.Gone, goneBody) }
         }
     }
 }

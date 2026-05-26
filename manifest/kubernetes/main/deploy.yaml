@@ -20,8 +20,6 @@ stringData:
   TITLIS_OKTA_CLIENT_ID: "__TITLIS_OKTA_CLIENT_ID__"
   TITLIS_AI_INTERNAL_SECRET: "__TITLIS_AI_INTERNAL_SECRET__"
   TITLIS_SCOREOPS_SECRET: "__TITLIS_SCOREOPS_SECRET__"
-  TITLIS_INSIGHTS_SECRET: "__INSIGHTS_INTERNAL_SECRET__"
-  TITLIS_PRBOT_SECRET: "__TITLIS_AI_INTERNAL_SECRET__"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -52,7 +50,7 @@ metadata:
   name: titlis-api
   namespace: __NAMESPACE__
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: titlis-api
@@ -212,16 +210,6 @@ spec:
                 secretKeyRef:
                   name: titlis-preprod-secrets
                   key: TITLIS_SCOREOPS_SECRET
-            - name: TITLIS_INSIGHTS_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: titlis-preprod-secrets
-                  key: TITLIS_INSIGHTS_SECRET
-            - name: TITLIS_PRBOT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: titlis-preprod-secrets
-                  key: TITLIS_PRBOT_SECRET
             - name: DD_AGENT_HOST
               valueFrom:
                 fieldRef:

@@ -5,6 +5,7 @@ import io.titlis.api.database.tables.TenantAiConfigs
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SqlExpressionBuilder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.upsert
 import org.jetbrains.exposed.sql.select
 import org.jetbrains.exposed.sql.update
@@ -18,11 +19,22 @@ data class TenantAiConfigRecord(
     val apiKeyEnc: String,
     val githubTokenEnc: String?,
     val githubBaseBranch: String,
+    val githubAuthMode: String,
+    val githubAppIdEnc: String?,
+    val githubAppPrivKeyEnc: String?,
+    val githubAppInstallIdEnc: String?,
     val monthlyTokenBudget: Int?,
     val tokensUsedMonth: Int,
     val isActive: Boolean,
+    val ddApiKeyEnc: String?,
+    val ddAppKeyEnc: String?,
     val createdAt: OffsetDateTime,
     val updatedAt: OffsetDateTime,
+)
+
+data class DDCredentials(
+    val ddApiKey: String,
+    val ddAppKey: String,
 )
 
 val SUPPORTED_PROVIDERS = setOf("openai", "anthropic", "google", "gemini", "mistral", "cohere", "azure", "ollama")
@@ -44,6 +56,10 @@ class AiConfigRepository {
         apiKeyEnc: String,
         githubTokenEnc: String?,
         githubBaseBranch: String,
+        githubAuthMode: String,
+        githubAppIdEnc: String?,
+        githubAppPrivKeyEnc: String?,
+        githubAppInstallIdEnc: String?,
         monthlyTokenBudget: Int?,
     ): TenantAiConfigRecord = dbQuery {
         val now = OffsetDateTime.now(ZoneOffset.UTC)
@@ -52,16 +68,20 @@ class AiConfigRepository {
             TenantAiConfigs.tenantId,
             onUpdateExclude = listOf(TenantAiConfigs.createdAt, TenantAiConfigs.tokensUsedMonth),
         ) {
-            it[TenantAiConfigs.tenantId]           = tenantId
-            it[TenantAiConfigs.provider]            = provider
-            it[TenantAiConfigs.model]               = model
-            it[TenantAiConfigs.apiKeyEnc]           = apiKeyEnc
-            it[TenantAiConfigs.githubTokenEnc]      = githubTokenEnc
-            it[TenantAiConfigs.githubBaseBranch]    = githubBaseBranch
-            it[TenantAiConfigs.monthlyTokenBudget]  = monthlyTokenBudget
-            it[TenantAiConfigs.isActive]            = true
-            it[TenantAiConfigs.createdAt]           = now
-            it[TenantAiConfigs.updatedAt]           = now
+            it[TenantAiConfigs.tenantId]                = tenantId
+            it[TenantAiConfigs.provider]                = provider
+            it[TenantAiConfigs.model]                   = model
+            it[TenantAiConfigs.apiKeyEnc]               = apiKeyEnc
+            it[TenantAiConfigs.githubTokenEnc]          = githubTokenEnc
+            it[TenantAiConfigs.githubBaseBranch]        = githubBaseBranch
+            it[TenantAiConfigs.githubAuthMode]          = githubAuthMode
+            it[TenantAiConfigs.githubAppIdEnc]          = githubAppIdEnc
+            it[TenantAiConfigs.githubAppPrivKeyEnc]     = githubAppPrivKeyEnc
+            it[TenantAiConfigs.githubAppInstallIdEnc]   = githubAppInstallIdEnc
+            it[TenantAiConfigs.monthlyTokenBudget]      = monthlyTokenBudget
+            it[TenantAiConfigs.isActive]                = true
+            it[TenantAiConfigs.createdAt]               = now
+            it[TenantAiConfigs.updatedAt]               = now
         }
 
         TenantAiConfigs
@@ -69,6 +89,55 @@ class AiConfigRepository {
             .where { TenantAiConfigs.tenantId eq tenantId }
             .single()
             .let { mapRow(it) }
+    }
+
+    suspend fun upsertDatadogCreds(
+        tenantId: Long,
+        ddApiKeyEnc: String,
+        ddAppKeyEnc: String?,
+    ): Unit = dbQuery {
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+        // If no AI config row exists yet, create a minimal placeholder so the DD
+        // creds have a home. The provider/model/apiKeyEnc placeholders indicate an
+        // incomplete config — the wizard will complete them in Step 3.
+        val existing = TenantAiConfigs
+            .select(TenantAiConfigs.columns)
+            .where { TenantAiConfigs.tenantId eq tenantId }
+            .singleOrNull()
+        if (existing == null) {
+            TenantAiConfigs.insert {
+                it[TenantAiConfigs.tenantId]    = tenantId
+                it[TenantAiConfigs.provider]    = "pending"
+                it[TenantAiConfigs.model]       = "pending"
+                it[TenantAiConfigs.apiKeyEnc]   = ""
+                it[TenantAiConfigs.isActive]    = false
+                it[TenantAiConfigs.ddApiKeyEnc] = ddApiKeyEnc
+                it[TenantAiConfigs.ddAppKeyEnc] = ddAppKeyEnc
+                it[TenantAiConfigs.createdAt]   = now
+                it[TenantAiConfigs.updatedAt]   = now
+            }
+        } else {
+            TenantAiConfigs.update({ TenantAiConfigs.tenantId eq tenantId }) {
+                it[TenantAiConfigs.ddApiKeyEnc] = ddApiKeyEnc
+                it[TenantAiConfigs.ddAppKeyEnc] = ddAppKeyEnc
+                it[TenantAiConfigs.updatedAt]   = now
+            }
+        }
+    }
+
+    suspend fun getDDCredentials(tenantId: Long): DDCredentials? = dbQuery {
+        TenantAiConfigs
+            .select(TenantAiConfigs.ddApiKeyEnc, TenantAiConfigs.ddAppKeyEnc)
+            .where { TenantAiConfigs.tenantId eq tenantId }
+            .singleOrNull()
+            ?.let { row ->
+                val apiKey = row[TenantAiConfigs.ddApiKeyEnc]
+                if (apiKey.isNullOrBlank()) null
+                else DDCredentials(
+                    ddApiKey = apiKey,
+                    ddAppKey = row[TenantAiConfigs.ddAppKeyEnc] ?: "",
+                )
+            }
     }
 
     suspend fun incrementTokensUsed(tenantId: Long, delta: Int) = dbQuery {
@@ -81,16 +150,22 @@ class AiConfigRepository {
     }
 
     private fun mapRow(row: ResultRow) = TenantAiConfigRecord(
-        tenantId          = row[TenantAiConfigs.tenantId],
-        provider          = row[TenantAiConfigs.provider],
-        model             = row[TenantAiConfigs.model],
-        apiKeyEnc         = row[TenantAiConfigs.apiKeyEnc],
-        githubTokenEnc    = row[TenantAiConfigs.githubTokenEnc],
-        githubBaseBranch  = row[TenantAiConfigs.githubBaseBranch],
-        monthlyTokenBudget = row[TenantAiConfigs.monthlyTokenBudget],
-        tokensUsedMonth   = row[TenantAiConfigs.tokensUsedMonth],
-        isActive          = row[TenantAiConfigs.isActive],
-        createdAt         = row[TenantAiConfigs.createdAt],
-        updatedAt         = row[TenantAiConfigs.updatedAt],
+        tenantId              = row[TenantAiConfigs.tenantId],
+        provider              = row[TenantAiConfigs.provider],
+        model                 = row[TenantAiConfigs.model],
+        apiKeyEnc             = row[TenantAiConfigs.apiKeyEnc],
+        githubTokenEnc        = row[TenantAiConfigs.githubTokenEnc],
+        githubBaseBranch      = row[TenantAiConfigs.githubBaseBranch],
+        githubAuthMode        = row[TenantAiConfigs.githubAuthMode],
+        githubAppIdEnc        = row[TenantAiConfigs.githubAppIdEnc],
+        githubAppPrivKeyEnc   = row[TenantAiConfigs.githubAppPrivKeyEnc],
+        githubAppInstallIdEnc = row[TenantAiConfigs.githubAppInstallIdEnc],
+        monthlyTokenBudget    = row[TenantAiConfigs.monthlyTokenBudget],
+        tokensUsedMonth       = row[TenantAiConfigs.tokensUsedMonth],
+        isActive              = row[TenantAiConfigs.isActive],
+        ddApiKeyEnc           = row[TenantAiConfigs.ddApiKeyEnc],
+        ddAppKeyEnc           = row[TenantAiConfigs.ddAppKeyEnc],
+        createdAt             = row[TenantAiConfigs.createdAt],
+        updatedAt             = row[TenantAiConfigs.updatedAt],
     )
 }
