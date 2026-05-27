@@ -61,6 +61,8 @@ spec:
     metadata:
       labels:
         app: titlis-api
+        titlis.io/github-owner: kaiqui
+        titlis.io/repo: titlis-api
         admission.datadoghq.com/enabled: "true"
         tags.datadoghq.com/env: "preprod"
         tags.datadoghq.com/service: "titlis-api"
