@@ -20,6 +20,7 @@ import io.titlis.api.auth.oktaJwtAuth
 import io.titlis.api.config.AppConfig
 import io.titlis.api.database.DatabaseFactory
 import io.titlis.api.database.DatabaseMigrator
+import io.titlis.api.repository.AdminRepository
 import io.titlis.api.repository.AiConfigRepository
 import io.titlis.api.repository.ApiKeyRepository
 import io.titlis.api.repository.CampaignRepository
@@ -49,6 +50,7 @@ import io.titlis.api.routes.settingsTagsRoutes
 import io.titlis.api.routes.settingsTagPoliciesRoutes
 import io.titlis.api.routes.bulkPrCampaignRoutes
 import io.titlis.api.routes.internalPrbotRoutes
+import io.titlis.api.routes.adminRoutes
 import io.titlis.api.routes.internalScorecardRoutes
 import io.titlis.api.routes.operatorRoutes
 import io.titlis.api.routes.operatorScoringRoutes
@@ -77,6 +79,7 @@ fun Application.module() {
     DatabaseMigrator.migrate(config.databaseMigration)
     DatabaseFactory.init(config.database)
 
+    val adminRepo         = AdminRepository()
     val scorecardRepo    = ScorecardRepository()
     val remediationRepo  = RemediationRepository()
     val sloRepo          = SloRepository()
@@ -147,6 +150,7 @@ fun Application.module() {
     }
 
     healthRoutes()
+    adminRoutes(adminRepo, requestAuthenticator)
     authRoutes(authRepo, tokenService, requestAuthenticator, apiKeyRepo, oktaVerifier)
     settingsAuthRoutes(authRepo)
     apiKeyRoutes(apiKeyRepo)
