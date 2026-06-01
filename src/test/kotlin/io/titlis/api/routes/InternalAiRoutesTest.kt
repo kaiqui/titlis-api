@@ -15,6 +15,7 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
 import io.mockk.coEvery
 import io.mockk.mockk
+import io.titlis.api.repository.AiConfigRepository
 import io.titlis.api.repository.RemediationRepository
 import io.titlis.api.repository.ScorecardRepository
 import io.titlis.api.repository.SloRepository
@@ -46,7 +47,7 @@ class InternalAiScorecardTest {
 
         application {
             installContentNegotiation()
-            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, AI_SECRET)
+            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, mockk(), AI_SECRET)
         }
 
         val response = client.get("/v1/internal/ai/scorecards?tenantId=1&k8sUid=uid-abc") {
@@ -65,7 +66,7 @@ class InternalAiScorecardTest {
 
         application {
             installContentNegotiation()
-            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, AI_SECRET)
+            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, mockk(), AI_SECRET)
         }
 
         val response = client.get("/v1/internal/ai/scorecards?tenantId=1&k8sUid=uid-abc")
@@ -81,7 +82,7 @@ class InternalAiScorecardTest {
 
         application {
             installContentNegotiation()
-            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, AI_SECRET)
+            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, mockk(), AI_SECRET)
         }
 
         val response = client.get("/v1/internal/ai/scorecards?tenantId=1&k8sUid=missing") {
@@ -104,7 +105,7 @@ class InternalAiSloTest {
 
         application {
             installContentNegotiation()
-            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, AI_SECRET)
+            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, mockk(), AI_SECRET)
         }
 
         val response = client.get("/v1/internal/ai/slos?tenantId=1") {
@@ -129,7 +130,7 @@ class InternalAiSloTest {
 
         application {
             installContentNegotiation()
-            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, AI_SECRET)
+            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, mockk(), AI_SECRET)
         }
 
         val response = client.post("/v1/internal/ai/slo-configs/10/propose-change?tenantId=1") {
@@ -150,7 +151,7 @@ class InternalAiSloTest {
 
         application {
             installContentNegotiation()
-            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, AI_SECRET)
+            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, mockk(), AI_SECRET)
         }
 
         val response = client.post("/v1/internal/ai/slo-configs/10/propose-change?tenantId=1") {
@@ -176,7 +177,7 @@ class InternalAiRemediationHistoryTest {
 
         application {
             installContentNegotiation()
-            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, AI_SECRET)
+            internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, mockk(), AI_SECRET)
         }
 
         val response = client.get("/v1/internal/ai/remediations?tenantId=1&k8sUid=uid-abc") {

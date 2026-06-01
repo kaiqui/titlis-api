@@ -28,6 +28,10 @@ private val SAMPLE_RECORD = TenantAiConfigRecord(
     apiKeyEnc = "sk-test-key",
     githubTokenEnc = null,
     githubBaseBranch = "main",
+    githubAuthMode = "pat",
+    githubAppIdEnc = null,
+    githubAppPrivKeyEnc = null,
+    githubAppInstallIdEnc = null,
     monthlyTokenBudget = 100_000,
     tokensUsedMonth = 5_000,
     isActive = true,
@@ -135,6 +139,10 @@ class AiConfigRoutesPutTest {
                 apiKeyEnc = "sk-newkey",
                 githubTokenEnc = null,
                 githubBaseBranch = "main",
+                githubAuthMode = "pat",
+                githubAppIdEnc = null,
+                githubAppPrivKeyEnc = null,
+                githubAppInstallIdEnc = null,
                 monthlyTokenBudget = 50_000,
             )
         } returns SAMPLE_RECORD.copy(monthlyTokenBudget = 50_000)
@@ -155,7 +163,7 @@ class AiConfigRoutesPutTest {
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        coVerify(exactly = 1) { repo.upsert(1L, "openai", "gpt-4o", "sk-newkey", null, "main", 50_000) }
+        coVerify(exactly = 1) { repo.upsert(1L, "openai", "gpt-4o", "sk-newkey", null, "main", "pat", null, null, null, 50_000) }
     }
 
     @Test
@@ -171,6 +179,10 @@ class AiConfigRoutesPutTest {
                 apiKeyEnc = "sk-test-key",
                 githubTokenEnc = "ghp_new",
                 githubBaseBranch = "main",
+                githubAuthMode = "pat",
+                githubAppIdEnc = null,
+                githubAppPrivKeyEnc = null,
+                githubAppInstallIdEnc = null,
                 monthlyTokenBudget = null,
             )
         } returns SAMPLE_RECORD.copy(githubTokenEnc = "ghp_new")
@@ -189,7 +201,7 @@ class AiConfigRoutesPutTest {
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        coVerify(exactly = 1) { repo.upsert(1L, "openai", "gpt-4o", "sk-test-key", "ghp_new", "main", null) }
+        coVerify(exactly = 1) { repo.upsert(1L, "openai", "gpt-4o", "sk-test-key", "ghp_new", "main", "pat", null, null, null, null) }
     }
 
     @Test
