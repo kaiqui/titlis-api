@@ -161,7 +161,7 @@ fun Application.module() {
     aiConfigRoutes(aiConfigRepo, requestAuthenticator)
     aiRoutes(scorecardRepo, aiConfigRepo, config, requestAuthenticator)
     ragRoutes(knowledgeRepo, config.aiService.internalSecret)
-    internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, aiConfigRepo, config.aiService.internalSecret)
+    internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, config.aiService.internalSecret)
     settingsScoreConfigRoutes(scoreopsClient, scoreConfigRepo, requestAuthenticator)
     settingsTagsRoutes(tagRepo)
     settingsTagPoliciesRoutes(scoreopsClient, requestAuthenticator)

@@ -97,18 +97,22 @@ fun Application.aiConfigRoutes(
                             HttpStatusCode.BadRequest,
                             mapOf("error" to "api_key_required_for_first_setup"),
                         )
+                    val resolvedGithubToken        = req.githubToken?.takeIf { it.isNotBlank() } ?: existing?.githubTokenEnc
+                    val resolvedGithubAppId        = req.githubAppId?.takeIf { it.isNotBlank() } ?: existing?.githubAppIdEnc
+                    val resolvedGithubAppPrivKey   = req.githubAppPrivateKey?.takeIf { it.isNotBlank() } ?: existing?.githubAppPrivKeyEnc
+                    val resolvedGithubAppInstallId = req.githubAppInstallationId?.takeIf { it.isNotBlank() } ?: existing?.githubAppInstallIdEnc
 
                     val config = aiConfigRepo.upsert(
                         tenantId              = principal.tenantId,
                         provider              = req.provider,
                         model                 = req.model,
                         apiKeyEnc             = resolvedApiKey,
-                        githubTokenEnc        = req.githubToken,
+                        githubTokenEnc        = resolvedGithubToken,
                         githubBaseBranch      = req.githubBaseBranch,
                         githubAuthMode        = req.githubAuthMode.ifBlank { "pat" },
-                        githubAppIdEnc        = req.githubAppId?.takeIf { it.isNotBlank() },
-                        githubAppPrivKeyEnc   = req.githubAppPrivateKey?.takeIf { it.isNotBlank() },
-                        githubAppInstallIdEnc = req.githubAppInstallationId?.takeIf { it.isNotBlank() },
+                        githubAppIdEnc        = resolvedGithubAppId,
+                        githubAppPrivKeyEnc   = resolvedGithubAppPrivKey,
+                        githubAppInstallIdEnc = resolvedGithubAppInstallId,
                         monthlyTokenBudget    = req.monthlyTokenBudget,
                     )
 

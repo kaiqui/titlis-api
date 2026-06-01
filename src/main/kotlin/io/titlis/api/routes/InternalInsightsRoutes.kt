@@ -28,8 +28,8 @@ fun Application.internalInsightsRoutes(
                 call.respond(HttpStatusCode.Unauthorized)
                 return@get
             }
-            val tenantId = call.request.queryParameters["tenant_id"]?.toLongOrNull()
-                ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "tenant_id required"))
+            val tenantId = call.request.queryParameters["tenantId"]?.toLongOrNull()
+                ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "tenantId required"))
 
             val creds = aiConfigRepo.getDDCredentials(tenantId)
                 ?: return@get call.respond(
