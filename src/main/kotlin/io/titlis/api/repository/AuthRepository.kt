@@ -247,7 +247,13 @@ class AuthRepository(
             .singleOrNull()
 
         if (identityRow != null && identityRow[PlatformUsers.isActive]) {
+            val userId = identityRow[PlatformUsers.platformUserId]
+            val now = OffsetDateTime.now(ZoneOffset.UTC)
             touchFederatedIdentity(identity.subject, integrationId, identity.issuer)
+            PlatformUsers.update({ PlatformUsers.platformUserId eq userId }) {
+                it[lastLoginAt] = now
+                it[updatedAt] = now
+            }
             return@dbQuery identityRow.toAuthenticatedUser(authProvider = "okta", onboardingCompleted = true)
         }
 
