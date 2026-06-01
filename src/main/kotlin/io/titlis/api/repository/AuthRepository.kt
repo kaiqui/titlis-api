@@ -202,6 +202,11 @@ class AuthRepository(
     }
 
     suspend fun getUser(userId: Long): AuthenticatedUser? = dbQuery {
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+        PlatformUsers.update({ PlatformUsers.platformUserId eq userId }) {
+            it[lastLoginAt] = now
+            it[updatedAt] = now
+        }
         baseUserQuery()
             .andWhere { PlatformUsers.platformUserId eq userId }
             .singleOrNull()
