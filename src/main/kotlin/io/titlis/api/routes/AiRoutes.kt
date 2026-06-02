@@ -41,6 +41,7 @@ import java.time.Duration
 data class AgentChatRequest(
     val sessionId: String,
     val message: String,
+    val workloadId: String? = null,
 )
 
 @Serializable
@@ -370,6 +371,7 @@ private fun buildAgentChatPayload(
     put("tenant_id", tenantId)
     put("session_id", body.sessionId)
     put("message", body.message)
+    put("workload_id", body.workloadId?.let { JsonPrimitive(it) } ?: JsonNull)
     put("ai_config", buildJsonObject {
         put("provider", aiConfig.provider)
         put("model", aiConfig.model)

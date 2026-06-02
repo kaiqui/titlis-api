@@ -28,6 +28,7 @@ data class TenantAiConfigRecord(
     val isActive: Boolean,
     val ddApiKeyEnc: String?,
     val ddAppKeyEnc: String?,
+    val ddSite: String,
     val createdAt: OffsetDateTime,
     val updatedAt: OffsetDateTime,
 )
@@ -35,6 +36,7 @@ data class TenantAiConfigRecord(
 data class DDCredentials(
     val ddApiKey: String,
     val ddAppKey: String,
+    val ddSite: String,
 )
 
 val SUPPORTED_PROVIDERS = setOf("openai", "anthropic", "google", "gemini", "mistral", "cohere", "azure", "ollama")
@@ -95,6 +97,7 @@ class AiConfigRepository {
         tenantId: Long,
         ddApiKeyEnc: String,
         ddAppKeyEnc: String?,
+        ddSite: String,
     ): Unit = dbQuery {
         val now = OffsetDateTime.now(ZoneOffset.UTC)
         // If no AI config row exists yet, create a minimal placeholder so the DD
@@ -113,6 +116,7 @@ class AiConfigRepository {
                 it[TenantAiConfigs.isActive]    = false
                 it[TenantAiConfigs.ddApiKeyEnc] = ddApiKeyEnc
                 it[TenantAiConfigs.ddAppKeyEnc] = ddAppKeyEnc
+                it[TenantAiConfigs.ddSite]      = ddSite
                 it[TenantAiConfigs.createdAt]   = now
                 it[TenantAiConfigs.updatedAt]   = now
             }
@@ -120,6 +124,7 @@ class AiConfigRepository {
             TenantAiConfigs.update({ TenantAiConfigs.tenantId eq tenantId }) {
                 it[TenantAiConfigs.ddApiKeyEnc] = ddApiKeyEnc
                 it[TenantAiConfigs.ddAppKeyEnc] = ddAppKeyEnc
+                it[TenantAiConfigs.ddSite]      = ddSite
                 it[TenantAiConfigs.updatedAt]   = now
             }
         }
@@ -127,7 +132,7 @@ class AiConfigRepository {
 
     suspend fun getDDCredentials(tenantId: Long): DDCredentials? = dbQuery {
         TenantAiConfigs
-            .select(TenantAiConfigs.ddApiKeyEnc, TenantAiConfigs.ddAppKeyEnc)
+            .select(TenantAiConfigs.ddApiKeyEnc, TenantAiConfigs.ddAppKeyEnc, TenantAiConfigs.ddSite)
             .where { TenantAiConfigs.tenantId eq tenantId }
             .singleOrNull()
             ?.let { row ->
@@ -136,6 +141,7 @@ class AiConfigRepository {
                 else DDCredentials(
                     ddApiKey = apiKey,
                     ddAppKey = row[TenantAiConfigs.ddAppKeyEnc] ?: "",
+                    ddSite   = row[TenantAiConfigs.ddSite],
                 )
             }
     }
@@ -165,6 +171,7 @@ class AiConfigRepository {
         isActive              = row[TenantAiConfigs.isActive],
         ddApiKeyEnc           = row[TenantAiConfigs.ddApiKeyEnc],
         ddAppKeyEnc           = row[TenantAiConfigs.ddAppKeyEnc],
+        ddSite                = row[TenantAiConfigs.ddSite],
         createdAt             = row[TenantAiConfigs.createdAt],
         updatedAt             = row[TenantAiConfigs.updatedAt],
     )

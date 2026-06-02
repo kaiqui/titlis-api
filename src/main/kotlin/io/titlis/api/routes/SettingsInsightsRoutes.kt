@@ -25,6 +25,7 @@ private val goneInsights = mapOf(
 data class SaveDatadogCredsRequest(
     val ddApiKey: String,
     val ddAppKey: String? = null,
+    val site: String = "datadoghq.com",
 )
 
 fun Application.settingsInsightsRoutes(
@@ -50,6 +51,7 @@ fun Application.settingsInsightsRoutes(
                     tenantId    = principal.tenantId,
                     ddApiKeyEnc = req.ddApiKey,
                     ddAppKeyEnc = req.ddAppKey?.takeIf { it.isNotBlank() },
+                    ddSite      = req.site.ifBlank { "datadoghq.com" },
                 )
                 call.respond(HttpStatusCode.OK, mapOf("status" to "saved"))
             }

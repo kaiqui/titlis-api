@@ -42,7 +42,7 @@ fun Application.internalInsightsRoutes(
                 DDCredentialsResponse(
                     ddApiKey = creds.ddApiKey,
                     ddAppKey = creds.ddAppKey,
-                    site     = "datadoghq.com",
+                    site     = creds.ddSite,
                 ),
             )
         }

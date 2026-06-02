@@ -286,6 +286,7 @@ object TenantAiConfigs : Table("titlis_oltp.tenant_ai_configs") {
     val isActive                = bool("is_active").default(true)
     val ddApiKeyEnc             = text("dd_api_key_enc").nullable()
     val ddAppKeyEnc             = text("dd_app_key_enc").nullable()
+    val ddSite                  = text("dd_site").default("datadoghq.com")
     val createdAt               = timestampWithTimeZone("created_at")
     val updatedAt               = timestampWithTimeZone("updated_at")
     override val primaryKey = PrimaryKey(tenantId)
