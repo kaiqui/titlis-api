@@ -28,6 +28,12 @@ data class AiRemediationNotification(
 )
 
 @Serializable
+data class AiClosePrRequest(
+    val workloadId: String,
+    val tenantId: Long,
+)
+
+@Serializable
 data class InternalProposeChangeRequest(
     val field: String,
     val oldValue: String,
@@ -125,6 +131,32 @@ fun Application.internalAiRoutes(
                 val k8sUid = call.request.queryParameters["k8sUid"]
                     ?: return@get call.respond(HttpStatusCode.BadRequest, buildJsonObject { put("error", "k8sUid required") })
                 call.respondJson(remediationRepo.getHistory(k8sUid, tenantId))
+            }
+
+            get("/remediations/current") {
+                val secret = call.request.headers["X-Internal-Secret"] ?: ""
+                if (secret != internalSecret) {
+                    call.respond(HttpStatusCode.Forbidden, buildJsonObject { put("error", "internal_secret_invalid") })
+                    return@get
+                }
+                val tenantId = call.request.queryParameters["tenantId"]?.toLongOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, buildJsonObject { put("error", "tenantId required") })
+                val k8sUid = call.request.queryParameters["k8sUid"]
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, buildJsonObject { put("error", "k8sUid required") })
+                val result = remediationRepo.getByWorkload(k8sUid, tenantId)
+                    ?: return@get call.respond(HttpStatusCode.NotFound)
+                call.respondJson(result)
+            }
+
+            post("/remediations/close-pr") {
+                val secret = call.request.headers["X-Internal-Secret"] ?: ""
+                if (secret != internalSecret) {
+                    call.respond(HttpStatusCode.Forbidden, buildJsonObject { put("error", "internal_secret_invalid") })
+                    return@post
+                }
+                val body = call.receive<AiClosePrRequest>()
+                remediationRepo.closePr(k8sUid = body.workloadId, tenantId = body.tenantId)
+                call.respond(HttpStatusCode.NoContent)
             }
 
             post("/remediations") {

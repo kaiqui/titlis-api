@@ -28,7 +28,7 @@ data class TenantAiConfigRecord(
     val isActive: Boolean,
     val ddApiKeyEnc: String?,
     val ddAppKeyEnc: String?,
-    val ddSite: String,
+    val ddSite: String = "datadoghq.com",
     val createdAt: OffsetDateTime,
     val updatedAt: OffsetDateTime,
 )

@@ -236,6 +236,56 @@ class RemediationRepository {
         }
     }
 
+    suspend fun closePr(k8sUid: String, tenantId: Long) = dbQuery {
+        val workloadId = tenantScopedWorkloadRow(k8sUid, tenantId)
+            ?.get(Workloads.workloadId) ?: return@dbQuery
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+
+        val active = AppRemediations
+            .select(
+                AppRemediations.version,
+                AppRemediations.appRemediationStatus,
+                AppRemediations.githubPrNumber,
+                AppRemediations.githubPrUrl,
+                AppRemediations.githubBranch,
+                AppRemediations.repositoryUrl,
+                AppRemediations.triggeredAt,
+            )
+            .where {
+                (AppRemediations.workloadId eq workloadId) and
+                    (AppRemediations.tenantId eq tenantId) and
+                    (
+                        (AppRemediations.appRemediationStatus eq "IN_PROGRESS") or
+                            (AppRemediations.appRemediationStatus eq "PR_OPEN")
+                    )
+            }
+            .singleOrNull() ?: return@dbQuery
+
+        RemediationHistory.insert {
+            it[RemediationHistory.workloadId] = workloadId
+            it[RemediationHistory.tenantId] = tenantId
+            it[RemediationHistory.remediationVersion] = active[AppRemediations.version]
+            it[RemediationHistory.appRemediationStatus] = "PR_CLOSED"
+            it[RemediationHistory.previousAppRemediationStatus] = active[AppRemediations.appRemediationStatus]
+            it[RemediationHistory.githubPrNumber] = active[AppRemediations.githubPrNumber]
+            it[RemediationHistory.githubPrUrl] = active[AppRemediations.githubPrUrl]
+            it[RemediationHistory.githubBranch] = active[AppRemediations.githubBranch]
+            it[RemediationHistory.repositoryUrl] = active[AppRemediations.repositoryUrl]
+            it[RemediationHistory.triggeredAt] = active[AppRemediations.triggeredAt]
+            it[RemediationHistory.resolvedAt] = now
+            it[RemediationHistory.createdAt] = now
+        }
+
+        AppRemediations.update({
+            (AppRemediations.workloadId eq workloadId) and
+                (AppRemediations.tenantId eq tenantId)
+        }) {
+            it[AppRemediations.appRemediationStatus] = "PR_CLOSED"
+            it[AppRemediations.resolvedAt] = now
+            it[AppRemediations.updatedAt] = now
+        }
+    }
+
     suspend fun getByWorkload(k8sUid: String, tenantId: Long): Map<String, Any?>? = dbQuery {
         val workloadId = tenantScopedWorkloadRow(k8sUid, tenantId)
             ?.get(Workloads.workloadId)

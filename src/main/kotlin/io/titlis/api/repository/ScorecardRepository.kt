@@ -334,6 +334,79 @@ class ScorecardRepository {
         }
     }
 
+    data class WorkloadGithubLink(
+        val repoUrl: String,
+        val serviceYamlPath: String,
+    )
+
+    suspend fun getGithubLink(k8sUid: String, tenantId: Long): WorkloadGithubLink? = dbQuery {
+        val ownRow = (Workloads innerJoin Namespaces innerJoin Clusters)
+            .select(
+                Workloads.workloadName,
+                Workloads.githubRepoUrl,
+                Workloads.serviceYamlPath,
+            )
+            .where { (Workloads.k8sUid eq k8sUid) and (Clusters.tenantId eq tenantId) }
+            .singleOrNull()
+            ?: return@dbQuery null
+
+        val ownRepoUrl = ownRow[Workloads.githubRepoUrl]
+        if (!ownRepoUrl.isNullOrBlank()) {
+            return@dbQuery WorkloadGithubLink(
+                repoUrl         = ownRepoUrl,
+                serviceYamlPath = ownRow[Workloads.serviceYamlPath] ?: ".titlis/service.yaml",
+            )
+        }
+
+        // Fallback: outro workload com mesmo nome no tenant (multi-cluster sharing)
+        val workloadName = ownRow[Workloads.workloadName]
+        (Workloads innerJoin Namespaces innerJoin Clusters)
+            .select(Workloads.githubRepoUrl, Workloads.serviceYamlPath)
+            .where {
+                (Workloads.workloadName eq workloadName) and
+                    (Clusters.tenantId eq tenantId) and
+                    Workloads.githubRepoUrl.isNotNull()
+            }
+            .firstOrNull()
+            ?.let { row ->
+                val url = row[Workloads.githubRepoUrl] ?: return@let null
+                WorkloadGithubLink(
+                    repoUrl         = url,
+                    serviceYamlPath = row[Workloads.serviceYamlPath] ?: ".titlis/service.yaml",
+                )
+            }
+    }
+
+    suspend fun setGithubLink(
+        k8sUid: String,
+        tenantId: Long,
+        repoUrl: String?,
+        serviceYamlPath: String?,
+    ) = dbQuery {
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+
+        val workloadName = (Workloads innerJoin Namespaces innerJoin Clusters)
+            .select(Workloads.workloadName)
+            .where { (Workloads.k8sUid eq k8sUid) and (Clusters.tenantId eq tenantId) }
+            .singleOrNull()
+            ?.get(Workloads.workloadName)
+            ?: return@dbQuery
+
+        // Propaga para todos os workloads com mesmo nome no tenant (multi-cluster)
+        val allMatchingIds = (Workloads innerJoin Namespaces innerJoin Clusters)
+            .select(Workloads.workloadId)
+            .where { (Workloads.workloadName eq workloadName) and (Clusters.tenantId eq tenantId) }
+            .map { it[Workloads.workloadId] }
+
+        if (allMatchingIds.isNotEmpty()) {
+            Workloads.update({ Workloads.workloadId inList allMatchingIds }) {
+                it[Workloads.githubRepoUrl]   = repoUrl
+                it[Workloads.serviceYamlPath] = serviceYamlPath ?: ".titlis/service.yaml"
+                it[Workloads.updatedAt]       = now
+            }
+        }
+    }
+
     suspend fun getByWorkloadId(k8sUid: String, tenantId: Long): Map<String, Any?>? = dbQuery {
         val workloadId = tenantScopedWorkloadRow(k8sUid, tenantId)
             ?.get(Workloads.workloadId)

@@ -37,6 +37,7 @@ import io.titlis.api.auth.RequestAuthenticator
 import io.titlis.api.config.ScoreopsClient
 import io.titlis.api.routes.aiConfigRoutes
 import io.titlis.api.routes.aiRoutes
+import io.titlis.api.routes.gitHubLinkRoutes
 import io.titlis.api.routes.internalAiRoutes
 import io.titlis.api.routes.ragRoutes
 import io.titlis.api.routes.apiKeyRoutes
@@ -130,7 +131,7 @@ fun Application.module() {
     }
 
     install(ContentNegotiation) {
-        json(Json { ignoreUnknownKeys = true; prettyPrint = false; coerceInputValues = true })
+        json(Json { ignoreUnknownKeys = true; prettyPrint = false; coerceInputValues = true; encodeDefaults = true })
     }
 
     install(Authentication) {
@@ -160,6 +161,7 @@ fun Application.module() {
     operatorRoutes(sloRepo, apiKeyRepo, router, requestAuthenticator)
     aiConfigRoutes(aiConfigRepo, requestAuthenticator)
     aiRoutes(scorecardRepo, aiConfigRepo, config, requestAuthenticator)
+    gitHubLinkRoutes(scorecardRepo, aiConfigRepo, requestAuthenticator)
     ragRoutes(knowledgeRepo, config.aiService.internalSecret)
     internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, config.aiService.internalSecret)
     settingsScoreConfigRoutes(scoreopsClient, scoreConfigRepo, requestAuthenticator)

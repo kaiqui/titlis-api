@@ -71,6 +71,8 @@ object Workloads : Table("titlis_oltp.workloads") {
     val labels               = jsonbText("labels").nullable()
     val annotations          = jsonbText("annotations").nullable()
     val resourceVersion      = varchar("resource_version", 100).nullable()
+    val githubRepoUrl        = varchar("github_repo_url", 500).nullable()
+    val serviceYamlPath      = varchar("service_yaml_path", 500).nullable()
     val isActive             = bool("is_active").default(true)
     val createdAt            = timestampWithTimeZone("created_at")
     val updatedAt            = timestampWithTimeZone("updated_at")

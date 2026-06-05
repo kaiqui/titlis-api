@@ -61,6 +61,7 @@ data class RemediateFindingsRequest(
     val findingIds: List<String>,
     val repoUrl: String,
     val deployManifestPath: String = "manifests/kubernetes/main/deploy.yaml",
+    val serviceYamlPath: String = ".titlis/service.yaml",
 )
 
 @Serializable
@@ -410,6 +411,7 @@ private fun buildRemediatePayload(
     put("finding_ids", buildJsonArray { body.findingIds.forEach { add(it) } })
     put("repo_url", body.repoUrl)
     put("deploy_manifest_path", body.deployManifestPath)
+    put("service_yaml_path", body.serviceYamlPath)
     put("ai_config", buildJsonObject {
         put("provider", aiConfig.provider)
         put("model", aiConfig.model)
