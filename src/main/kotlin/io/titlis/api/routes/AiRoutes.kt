@@ -75,6 +75,19 @@ data class SetManifestPathRequest(
 )
 
 @Serializable
+data class SubmitServiceYamlRequest(
+    val manifestPath: String,
+    val baseBranch: String,
+    val name: String,
+    val team: String,
+    val namespaces: List<String>,
+    val namePattern: String,
+    val env: String = "dev",
+    val contacts: List<kotlinx.serialization.json.JsonObject>? = null,
+    val extraPaths: kotlinx.serialization.json.JsonObject? = null,
+)
+
+@Serializable
 data class ExplainFindingRequest(
     val pillar: String,
     val severity: String,
@@ -181,6 +194,41 @@ fun Application.aiRoutes(
 
                     val aiRequest = HttpRequest.newBuilder()
                         .uri(URI.create("${appConfig.aiService.url}/v1/remediate/$threadId/set-path"))
+                        .header("Content-Type", "application/json")
+                        .header("X-Internal-Secret", appConfig.aiService.internalSecret)
+                        .POST(HttpRequest.BodyPublishers.ofString(aiPayload))
+                        .build()
+
+                    call.response.headers.append("Cache-Control", "no-cache")
+                    call.response.headers.append("X-Accel-Buffering", "no")
+                    call.respondBytesWriter(contentType = ContentType.parse("text/event-stream")) {
+                        withContext(Dispatchers.IO) { proxyAiSse(this@respondBytesWriter, httpClient, aiRequest) }
+                    }
+                }
+
+                post("/remediate/{threadId}/submit-service-yaml") {
+                    call.requireRole() ?: return@post
+                    val threadId = call.parameters["threadId"]
+                        ?: return@post call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "threadId_required"),
+                        )
+                    val body = call.receive<SubmitServiceYamlRequest>()
+
+                    val aiPayload = buildJsonObject {
+                        put("manifest_path", body.manifestPath)
+                        put("base_branch", body.baseBranch)
+                        put("name", body.name)
+                        put("team", body.team)
+                        put("namespaces", buildJsonArray { body.namespaces.forEach { add(it) } })
+                        put("name_pattern", body.namePattern)
+                        put("env", body.env)
+                        if (body.contacts != null) put("contacts", buildJsonArray { body.contacts.forEach { add(it) } }) else put("contacts", JsonNull)
+                        if (body.extraPaths != null) put("extra_paths", body.extraPaths) else put("extra_paths", JsonNull)
+                    }.toString()
+
+                    val aiRequest = HttpRequest.newBuilder()
+                        .uri(URI.create("${appConfig.aiService.url}/v1/remediate/$threadId/submit-service-yaml"))
                         .header("Content-Type", "application/json")
                         .header("X-Internal-Secret", appConfig.aiService.internalSecret)
                         .POST(HttpRequest.BodyPublishers.ofString(aiPayload))

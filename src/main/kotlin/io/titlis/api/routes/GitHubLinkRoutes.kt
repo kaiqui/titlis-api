@@ -157,11 +157,17 @@ fun Application.gitHubLinkRoutes(
                             mapOf("error" to "invalid_repo_url", "message" to "Use o formato https://github.com/org/repo"),
                         )
 
-                    val token = aiConfigRepo.getByTenant(principal.tenantId)?.githubTokenEnc?.takeIf { it.isNotBlank() }
-                        ?: return@post call.respond(
+                    val token = when (val r = resolveGithubToken(aiConfigRepo.getByTenant(principal.tenantId))) {
+                        is GithubTokenResult.Ok -> r.token
+                        GithubTokenResult.NotConfigured -> return@post call.respond(
                             HttpStatusCode.UnprocessableEntity,
-                            mapOf("error" to "github_not_configured", "message" to "Configure o token GitHub em Configurações › ARIA"),
+                            mapOf("error" to "github_not_configured", "message" to "Configure o token GitHub ou o GitHub App em Configurações › ARIA"),
                         )
+                        is GithubTokenResult.Error -> return@post call.respond(
+                            HttpStatusCode.UnprocessableEntity,
+                            mapOf("error" to "github_app_error", "message" to r.message),
+                        )
+                    }
 
                     val (owner, repo)    = ownerRepo
                     val serviceYamlFound = checkServiceYamlAt(owner, repo, serviceYamlPath, token)
@@ -194,11 +200,17 @@ fun Application.gitHubLinkRoutes(
                         return@get
                     }
 
-                    val token = aiConfigRepo.getByTenant(principal.tenantId)?.githubTokenEnc?.takeIf { it.isNotBlank() }
-                        ?: return@get call.respond(
+                    val token = when (val r = resolveGithubToken(aiConfigRepo.getByTenant(principal.tenantId))) {
+                        is GithubTokenResult.Ok -> r.token
+                        GithubTokenResult.NotConfigured -> return@get call.respond(
                             HttpStatusCode.UnprocessableEntity,
-                            mapOf("error" to "github_not_configured", "message" to "Configure o token GitHub em Configurações › ARIA"),
+                            mapOf("error" to "github_not_configured", "message" to "Configure o token GitHub ou o GitHub App em Configurações › ARIA"),
                         )
+                        is GithubTokenResult.Error -> return@get call.respond(
+                            HttpStatusCode.UnprocessableEntity,
+                            mapOf("error" to "github_app_error", "message" to r.message),
+                        )
+                    }
 
                     call.respond(RepoSearchResponse(searchRepos(q, token)))
                 }

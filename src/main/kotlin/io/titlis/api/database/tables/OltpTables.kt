@@ -366,6 +366,16 @@ object PrCampaignItems : Table("titlis_oltp.pr_campaign_items") {
     override val primaryKey  = PrimaryKey(prCampaignItemId)
 }
 
+object UserFavorites : Table("titlis_oltp.user_favorites") {
+    val userFavoriteId  = long("user_favorite_id").autoIncrement()
+    val platformUserId  = long("platform_user_id").references(PlatformUsers.platformUserId)
+    val tenantId        = long("tenant_id").references(Tenants.tenantId)
+    val resourceType    = varchar("resource_type", 50).default("workload")
+    val resourceKey     = varchar("resource_key", 255)  // k8s_uid for workloads
+    val createdAt       = timestampWithTimeZone("created_at")
+    override val primaryKey = PrimaryKey(userFavoriteId)
+}
+
 object PrCampaignEnvSteps : Table("titlis_oltp.pr_campaign_env_steps") {
     val prCampaignEnvStepId = long("pr_campaign_env_step_id").autoIncrement()
     val prCampaignItemId    = long("pr_campaign_item_id").references(PrCampaignItems.prCampaignItemId)

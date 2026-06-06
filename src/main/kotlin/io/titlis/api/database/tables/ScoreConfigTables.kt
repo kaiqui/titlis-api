@@ -20,7 +20,7 @@ private class PgEnumAsStringColumnType(private val pgTypeName: String) : VarChar
 // O titlis-scoreops é dono desse schema e gerencia as migrations.
 
 object ScoringEngines : Table("titlis_config.scoring_engines") {
-    val id          = integer("id")
+    val id          = integer("scoring_engine_id")
     val slug        = varchar("slug", 64)
     val name        = varchar("name", 128)
     val enabled     = bool("enabled")
@@ -29,8 +29,8 @@ object ScoringEngines : Table("titlis_config.scoring_engines") {
 }
 
 object EngineRules : Table("titlis_config.engine_rules") {
-    val id               = integer("id")
-    val engineId         = integer("engine_id")
+    val id               = integer("engine_rule_id")
+    val engineId         = integer("scoring_engine_id")
     val ruleId           = varchar("rule_id", 128)
     val pillar           = varchar("pillar", 64)
     val name             = varchar("name", 256)
@@ -40,9 +40,9 @@ object EngineRules : Table("titlis_config.engine_rules") {
 }
 
 object RuleOverrides : Table("titlis_config.rule_overrides") {
-    val id          = long("id")
+    val id          = long("rule_override_id")
     val tenantId    = integer("tenant_id")
-    val engineId    = integer("engine_id")
+    val engineId    = integer("scoring_engine_id")
     val ruleId      = varchar("rule_id", 128)
     val scope       = registerColumn<String>("scope", PgEnumAsStringColumnType("titlis_config.scope_type"))
     val clusterName = varchar("cluster_name", 256).nullable()
@@ -57,7 +57,7 @@ object RuleOverrides : Table("titlis_config.rule_overrides") {
 
 object PillarWeightsConfig : Table("titlis_config.pillar_weights") {
     val tenantId  = integer("tenant_id")
-    val engineId  = integer("engine_id")
+    val engineId  = integer("scoring_engine_id")
     val pillar    = varchar("pillar", 64)
     val weight    = short("weight")
     val updatedBy = varchar("updated_by", 256)

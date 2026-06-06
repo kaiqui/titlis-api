@@ -55,9 +55,18 @@ fun AuthenticationConfig.oktaJwtAuth(
     authRepository: AuthRepository,
     name: String = OKTA_JWT_PROVIDER,
 ) {
-    val issuer = verifier.issuer() ?: return
-    val audience = verifier.audience() ?: return
-    val jwkProvider = verifier.jwkProvider() ?: return
+    val issuer = verifier.issuer()
+    val audience = verifier.audience()
+    val jwkProvider = verifier.jwkProvider()
+
+    if (issuer == null || audience == null || jwkProvider == null) {
+        // Registra provider no-op para que o routing não quebre quando okta-jwt é referenciado
+        // mas Okta não está configurado. Nunca autentica — app-auth cobre o login local.
+        register(object : AuthenticationProvider(object : AuthenticationProvider.Config(name) {}) {
+            override suspend fun onAuthenticate(context: AuthenticationContext) {}
+        })
+        return
+    }
 
     jwt(name) {
         realm = "Titlis"

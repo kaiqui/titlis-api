@@ -597,6 +597,9 @@ class ScorecardRepository {
             it[Workloads.isActive] = true
             it[Workloads.createdAt] = now
             it[Workloads.updatedAt] = now
+            if (!event.backstageComponent.isNullOrBlank()) {
+                it[Workloads.backstageComponent] = event.backstageComponent
+            }
         }
 
         return resolveWorkloadId(event.workloadId, namespaceId)

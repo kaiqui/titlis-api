@@ -55,7 +55,7 @@ internal fun Application.installTestSecurity(
     authRepository: AuthRepository = mockk(relaxed = true),
 ) {
     install(ContentNegotiation) {
-        json(Json { ignoreUnknownKeys = true })
+        json(Json { ignoreUnknownKeys = true; coerceInputValues = true; encodeDefaults = true })
     }
     install(Authentication) {
         appAuth(authenticator)

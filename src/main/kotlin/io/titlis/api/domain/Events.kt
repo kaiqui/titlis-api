@@ -43,6 +43,7 @@ data class ScorecardEvaluatedEvent(
     @SerialName("validation_results")
     val validationResults: List<ValidationResultData> = emptyList(),
     @SerialName("evaluated_at") val evaluatedAt: String,
+    @SerialName("backstage_component") val backstageComponent: String? = null,
 )
 
 @Serializable

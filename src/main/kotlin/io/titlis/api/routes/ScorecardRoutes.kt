@@ -9,10 +9,12 @@ import io.ktor.server.routing.*
 import io.titlis.api.auth.AppPrincipal
 import io.titlis.api.auth.protectedProviderNames
 import io.titlis.api.auth.RequestAuthenticator
+import io.titlis.api.repository.FavoriteRepository
 import io.titlis.api.repository.ScorecardRepository
 
 fun Application.scorecardRoutes(
     repo: ScorecardRepository,
+    favoriteRepo: FavoriteRepository,
     requestAuthenticator: RequestAuthenticator? = null,
 ) {
     routing {
@@ -21,7 +23,14 @@ fun Application.scorecardRoutes(
                 get("/dashboard") {
                     val principal = call.principal<AppPrincipal>()
                     val cluster = call.request.queryParameters["cluster"]
-                    call.respondJson(repo.getDashboard(principal?.tenantId ?: 0, cluster))
+                    val dashboard = repo.getDashboard(principal?.tenantId ?: 0, cluster)
+                    val favoriteUids = if (principal?.userId != null)
+                        favoriteRepo.listFavoriteK8sUids(principal.userId, principal.tenantId)
+                    else emptySet<String>()
+                    val enriched = dashboard.map { row ->
+                        row + ("is_favorite" to (row["workload_id"] in favoriteUids))
+                    }
+                    call.respondJson(enriched)
                 }
 
                 get("/workloads/{workloadId}/scorecard") {

@@ -7,11 +7,14 @@ import io.ktor.server.testing.*
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import io.titlis.api.repository.FavoriteRepository
 import io.titlis.api.repository.ScorecardRepository
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class ScorecardRoutesTest {
+
+    private val favoriteRepo = mockk<FavoriteRepository>(relaxed = true)
 
     @Test
     fun `GET dashboard returns 200`() = testApplication {
@@ -20,7 +23,7 @@ class ScorecardRoutesTest {
             mapOf("workload_id" to "abc", "overall_score" to 90.0)
         )
         application {
-            scorecardRoutes(repo)
+            scorecardRoutes(repo, favoriteRepo)
         }
         val response = client.get("/v1/dashboard")
         assertEquals(HttpStatusCode.OK, response.status)
@@ -33,7 +36,7 @@ class ScorecardRoutesTest {
 
         application {
             installTestSecurity(authenticator)
-            scorecardRoutes(repo, authenticator)
+            scorecardRoutes(repo, favoriteRepo, authenticator)
         }
 
         val response = client.get("/v1/dashboard")
@@ -50,7 +53,7 @@ class ScorecardRoutesTest {
 
         application {
             installTestSecurity(authenticator)
-            scorecardRoutes(repo, authenticator)
+            scorecardRoutes(repo, favoriteRepo, authenticator)
         }
 
         val response = client.get("/v1/dashboard") {

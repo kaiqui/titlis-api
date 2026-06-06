@@ -15,7 +15,9 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import io.titlis.api.repository.AiConfigRepository
 import io.titlis.api.repository.ScorecardRepository
-import io.titlis.api.repository.WorkloadGithubLink
+import io.titlis.api.repository.ScorecardRepository.WorkloadGithubLink
+import io.titlis.api.repository.TenantAiConfigRecord
+import java.time.OffsetDateTime
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.boolean
@@ -40,6 +42,26 @@ class GitHubLinkRoutesTest {
         serviceYamlPath = ".titlis/service.yaml",
     )
 
+    private fun aiConfigWithPat(pat: String) = TenantAiConfigRecord(
+        tenantId = 1L,
+        provider = "openai",
+        model = "gpt-4o",
+        apiKeyEnc = "k",
+        githubTokenEnc = pat,
+        githubBaseBranch = "main",
+        githubAuthMode = "pat",
+        githubAppIdEnc = null,
+        githubAppPrivKeyEnc = null,
+        githubAppInstallIdEnc = null,
+        monthlyTokenBudget = null,
+        tokensUsedMonth = 0,
+        isActive = true,
+        ddApiKeyEnc = null,
+        ddAppKeyEnc = null,
+        createdAt = OffsetDateTime.now(),
+        updatedAt = OffsetDateTime.now(),
+    )
+
     // ── GET ──────────────────────────────────────────────────────────────────
 
     @Test
@@ -52,7 +74,7 @@ class GitHubLinkRoutesTest {
 
         application {
             installTestSecurity(authenticator)
-            gitHubLinkRoutes(scorecardRepo, aiConfigRepo)
+            gitHubLinkRoutes(scorecardRepo, aiConfigRepo, authenticator)
         }
 
         val response = client.get("/v1/workloads/uid-abc/github-link") {
@@ -76,7 +98,7 @@ class GitHubLinkRoutesTest {
 
         application {
             installTestSecurity(authenticator)
-            gitHubLinkRoutes(scorecardRepo, aiConfigRepo)
+            gitHubLinkRoutes(scorecardRepo, aiConfigRepo, authenticator)
         }
 
         val response = client.get("/v1/workloads/uid-no-link/github-link") {
@@ -96,7 +118,7 @@ class GitHubLinkRoutesTest {
 
         application {
             installTestSecurity(authenticator)
-            gitHubLinkRoutes(scorecardRepo, aiConfigRepo)
+            gitHubLinkRoutes(scorecardRepo, aiConfigRepo, authenticator)
         }
 
         val response = client.get("/v1/workloads/uid-abc/github-link")
@@ -111,15 +133,12 @@ class GitHubLinkRoutesTest {
         val aiConfigRepo  = mockk<AiConfigRepository>(relaxed = true)
         val authenticator = testRequestAuthenticator()
 
-        coEvery { aiConfigRepo.getByTenant(1L)?.githubTokenEnc } returns "ghp_test_token"
-        coEvery { aiConfigRepo.getByTenant(1L) } returns mockk {
-            coEvery { githubTokenEnc } returns "ghp_test_token"
-        }
+        coEvery { aiConfigRepo.getByTenant(1L) } returns aiConfigWithPat("ghp_test_token")
         coEvery { scorecardRepo.setGithubLink(any(), any(), any(), any()) } returns Unit
 
         application {
             installTestSecurity(authenticator)
-            gitHubLinkRoutes(scorecardRepo, aiConfigRepo)
+            gitHubLinkRoutes(scorecardRepo, aiConfigRepo, authenticator)
         }
 
         val response = client.post("/v1/workloads/uid-abc/github-link") {
@@ -147,7 +166,7 @@ class GitHubLinkRoutesTest {
 
         application {
             installTestSecurity(authenticator)
-            gitHubLinkRoutes(scorecardRepo, aiConfigRepo)
+            gitHubLinkRoutes(scorecardRepo, aiConfigRepo, authenticator)
         }
 
         val response = client.delete("/v1/workloads/uid-abc/github-link") {

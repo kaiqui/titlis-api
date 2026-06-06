@@ -47,6 +47,9 @@ data class WorkloadSnapshotDTO(
     // SLO presence fields injected by titlis-api from slo_configs table before forwarding to scoreops.
     @SerialName("has_slo") val hasSlo: Boolean = false,
     @SerialName("slo_healthy") val sloHealthy: Boolean = false,
+    // Backstage entity name extracted by the operator from annotation "backstage.io/kubernetes-id".
+    // Passed through unchanged; scoreops uses it to evaluate OPS-002.
+    @SerialName("backstage_component") val backstageComponent: String = "",
 ) {
     fun withTenant(tenantId: Long) = copy(tenantId = tenantId)
 

@@ -30,6 +30,7 @@ import io.titlis.api.repository.MetricsRepository
 import io.titlis.api.repository.RemediationRepository
 import io.titlis.api.repository.ScoreConfigRepository
 import io.titlis.api.repository.ScorecardRepository
+import io.titlis.api.repository.FavoriteRepository
 import io.titlis.api.repository.SloRepository
 import io.titlis.api.repository.TagRepository
 import io.titlis.api.auth.PasswordHasher
@@ -43,6 +44,7 @@ import io.titlis.api.routes.ragRoutes
 import io.titlis.api.routes.apiKeyRoutes
 import io.titlis.api.routes.authRoutes
 import io.titlis.api.routes.healthRoutes
+import io.titlis.api.routes.favoriteRoutes
 import io.titlis.api.routes.remediationRoutes
 import io.titlis.api.routes.scorecardRoutes
 import io.titlis.api.routes.settingsAuthRoutes
@@ -91,6 +93,7 @@ fun Application.module() {
     val scoreConfigRepo  = ScoreConfigRepository()
     val tagRepo          = TagRepository()
     val campaignRepo     = CampaignRepository()
+    val favoriteRepo     = FavoriteRepository()
     val passwordHasher   = PasswordHasher()
     val authRepo         = AuthRepository(passwordHasher)
     val scoreopsClient   = ScoreopsClient(config.scoreops.url, config.scoreops.secret)
@@ -110,9 +113,14 @@ fun Application.module() {
     }
 
     install(CORS) {
-        config.corsAllowedOrigins.forEach { origin ->
-            val uri = io.ktor.http.Url(origin)
-            allowHost(uri.hostWithPort, schemes = listOf(uri.protocol.name))
+        val origins = config.corsAllowedOrigins
+        if (origins.contains("*")) {
+            anyHost()
+        } else {
+            origins.forEach { origin ->
+                val uri = io.ktor.http.Url(origin)
+                allowHost(uri.hostWithPort, schemes = listOf(uri.protocol.name))
+            }
         }
         allowMethod(HttpMethod.Options)
         allowMethod(HttpMethod.Get)
@@ -155,7 +163,8 @@ fun Application.module() {
     authRoutes(authRepo, tokenService, requestAuthenticator, apiKeyRepo, oktaVerifier)
     settingsAuthRoutes(authRepo)
     apiKeyRoutes(apiKeyRepo)
-    scorecardRoutes(scorecardRepo, requestAuthenticator)
+    scorecardRoutes(scorecardRepo, favoriteRepo, requestAuthenticator)
+    favoriteRoutes(favoriteRepo, requestAuthenticator)
     remediationRoutes(remediationRepo, requestAuthenticator)
     sloRoutes(sloRepo, requestAuthenticator)
     operatorRoutes(sloRepo, apiKeyRepo, router, requestAuthenticator)
