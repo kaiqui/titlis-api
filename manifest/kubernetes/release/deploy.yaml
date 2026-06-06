@@ -50,6 +50,12 @@ spec:
         - name: titlis-api
           image: kailima/titlis-api:preprod-latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - name: http
               containerPort: 8080
@@ -238,7 +244,7 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: titlis-api
-  minReplicas: 1
+  minReplicas: 2
   maxReplicas: 10
   metrics:
     - type: Resource
