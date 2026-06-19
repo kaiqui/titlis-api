@@ -6,6 +6,8 @@ import io.titlis.api.repository.CampaignRepository
 import io.titlis.api.repository.MetricsRepository
 import io.titlis.api.repository.RemediationRepository
 import io.titlis.api.repository.ScorecardRepository
+import io.titlis.api.repository.ServiceDefinitionEvent
+import io.titlis.api.repository.ServiceDefinitionRepository
 import io.titlis.api.repository.SloRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +25,7 @@ class EventRouter(
     private val apiKeyRepo: ApiKeyRepository,
     private val scope: CoroutineScope,
     private val campaignRepo: CampaignRepository,
+    private val serviceDefRepo: ServiceDefinitionRepository = ServiceDefinitionRepository(),
 ) {
     private val logger = LoggerFactory.getLogger(EventRouter::class.java)
     private val json = Json { ignoreUnknownKeys = true }
@@ -134,6 +137,24 @@ class EventRouter(
             "finding_opened" -> {
                 val event = json.decodeFromJsonElement<FindingOpenedEvent>(envelope.data)
                 logger.info("Finding opened: rule=${event.ruleId} workload=${event.workloadId} tenant=$tenantId")
+            }
+            "service_definition_synced" -> {
+                val event = json.decodeFromJsonElement<ServiceDefinitionSyncedEvent>(envelope.data)
+                serviceDefRepo.upsert(
+                    tenantId = tenantId,
+                    event = ServiceDefinitionEvent(
+                        serviceName  = event.serviceName,
+                        team         = event.team,
+                        product      = event.product,
+                        tier         = event.tier,
+                        description  = event.description,
+                        repoUrl      = event.repoUrl,
+                        workloads    = event.workloads,
+                        rawYaml      = event.rawYaml,
+                        integrations = event.integrations,
+                    ),
+                )
+                logger.info("service_definition_synced: service=${event.serviceName} team=${event.team} tenant=$tenantId")
             }
             else -> logger.warn("Unknown event type: ${envelope.t}")
         }

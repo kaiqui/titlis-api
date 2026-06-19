@@ -29,6 +29,8 @@ data class TenantAiConfigRecord(
     val ddApiKeyEnc: String?,
     val ddAppKeyEnc: String?,
     val ddSite: String = "datadoghq.com",
+    val queueMonitoringEnabled: Boolean = false,
+    val monitorCreationEnabled: Boolean = false,
     val createdAt: OffsetDateTime,
     val updatedAt: OffsetDateTime,
 )
@@ -155,6 +157,73 @@ class AiConfigRepository {
         }
     }
 
+    suspend fun setQueueMonitoringEnabled(tenantId: Long, enabled: Boolean): Unit = dbQuery {
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+        val existing = TenantAiConfigs
+            .select(TenantAiConfigs.tenantId)
+            .where { TenantAiConfigs.tenantId eq tenantId }
+            .singleOrNull()
+        if (existing == null) {
+            TenantAiConfigs.insert {
+                it[TenantAiConfigs.tenantId]             = tenantId
+                it[TenantAiConfigs.provider]             = "pending"
+                it[TenantAiConfigs.model]                = "pending"
+                it[TenantAiConfigs.apiKeyEnc]            = ""
+                it[TenantAiConfigs.isActive]             = false
+                it[TenantAiConfigs.queueMonitoringEnabled] = enabled
+                it[TenantAiConfigs.monitorCreationEnabled] = false
+                it[TenantAiConfigs.createdAt]            = now
+                it[TenantAiConfigs.updatedAt]            = now
+            }
+        } else {
+            TenantAiConfigs.update({ TenantAiConfigs.tenantId eq tenantId }) {
+                it[queueMonitoringEnabled] = enabled
+                it[updatedAt]              = now
+            }
+        }
+    }
+
+    suspend fun isQueueMonitoringEnabled(tenantId: Long): Boolean = dbQuery {
+        TenantAiConfigs
+            .select(TenantAiConfigs.queueMonitoringEnabled)
+            .where { TenantAiConfigs.tenantId eq tenantId }
+            .singleOrNull()
+            ?.get(TenantAiConfigs.queueMonitoringEnabled) ?: false
+    }
+
+    suspend fun setMonitorCreationEnabled(tenantId: Long, enabled: Boolean): Unit = dbQuery {
+        val now = OffsetDateTime.now(ZoneOffset.UTC)
+        val existing = TenantAiConfigs
+            .select(TenantAiConfigs.tenantId)
+            .where { TenantAiConfigs.tenantId eq tenantId }
+            .singleOrNull()
+        if (existing == null) {
+            TenantAiConfigs.insert {
+                it[TenantAiConfigs.tenantId]               = tenantId
+                it[TenantAiConfigs.provider]               = "pending"
+                it[TenantAiConfigs.model]                  = "pending"
+                it[TenantAiConfigs.apiKeyEnc]              = ""
+                it[TenantAiConfigs.isActive]               = false
+                it[TenantAiConfigs.monitorCreationEnabled] = enabled
+                it[TenantAiConfigs.createdAt]              = now
+                it[TenantAiConfigs.updatedAt]              = now
+            }
+        } else {
+            TenantAiConfigs.update({ TenantAiConfigs.tenantId eq tenantId }) {
+                it[monitorCreationEnabled] = enabled
+                it[updatedAt]             = now
+            }
+        }
+    }
+
+    suspend fun isMonitorCreationEnabled(tenantId: Long): Boolean = dbQuery {
+        TenantAiConfigs
+            .select(TenantAiConfigs.monitorCreationEnabled)
+            .where { TenantAiConfigs.tenantId eq tenantId }
+            .singleOrNull()
+            ?.get(TenantAiConfigs.monitorCreationEnabled) ?: false
+    }
+
     private fun mapRow(row: ResultRow) = TenantAiConfigRecord(
         tenantId              = row[TenantAiConfigs.tenantId],
         provider              = row[TenantAiConfigs.provider],
@@ -172,6 +241,8 @@ class AiConfigRepository {
         ddApiKeyEnc           = row[TenantAiConfigs.ddApiKeyEnc],
         ddAppKeyEnc           = row[TenantAiConfigs.ddAppKeyEnc],
         ddSite                = row[TenantAiConfigs.ddSite],
+        queueMonitoringEnabled = row[TenantAiConfigs.queueMonitoringEnabled],
+        monitorCreationEnabled = row[TenantAiConfigs.monitorCreationEnabled],
         createdAt             = row[TenantAiConfigs.createdAt],
         updatedAt             = row[TenantAiConfigs.updatedAt],
     )

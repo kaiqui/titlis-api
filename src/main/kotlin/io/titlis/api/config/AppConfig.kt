@@ -46,6 +46,15 @@ data class ScoreopsConfig(
     val secret: String,
 )
 
+data class CostConfig(
+    val internalSecret: String,
+)
+
+data class ClerkConfig(
+    val jwksUrl: String?,
+    val webhookSecret: String?,
+)
+
 data class AppConfig(
     val database: DatabaseConfig,
     val databaseMigration: DatabaseMigrationConfig,
@@ -53,6 +62,8 @@ data class AppConfig(
     val corsAllowedOrigins: List<String>,
     val aiService: AiServiceConfig,
     val scoreops: ScoreopsConfig,
+    val cost: CostConfig,
+    val clerk: ClerkConfig,
 ) {
     companion object {
         fun from(config: ApplicationConfig): AppConfig {
@@ -166,6 +177,26 @@ data class AppConfig(
                         path = "titlis.scoreops.secret",
                         env = "TITLIS_SCOREOPS_SECRET",
                         default = "titlis-ai-internal-secret-dev",
+                    ),
+                ),
+                cost = CostConfig(
+                    internalSecret = propertyOrEnv(
+                        config = config,
+                        path = "titlis.cost.internalSecret",
+                        env = "TITLIS_COST_INTERNAL_SECRET",
+                        default = "dev-cost-secret",
+                    ),
+                ),
+                clerk = ClerkConfig(
+                    jwksUrl = optionalPropertyOrEnv(
+                        config = config,
+                        path = "titlis.clerk.jwksUrl",
+                        env = "CLERK_JWKS_URL",
+                    ),
+                    webhookSecret = optionalPropertyOrEnv(
+                        config = config,
+                        path = "titlis.clerk.webhookSecret",
+                        env = "CLERK_WEBHOOK_SECRET",
                     ),
                 ),
                 auth = AuthConfig(

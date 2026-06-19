@@ -158,6 +158,20 @@ class TagRepository {
             .map { WorkloadItem(it[Workloads.workloadId], it[Workloads.workloadName], it[Namespaces.namespaceId], it[Namespaces.namespaceName], it[Clusters.clusterName]) }
     }
 
+    suspend fun listAvailableTags(tenantId: Long, resourceType: String): List<String> = dbQuery {
+        // When filtering workloads, tags from cluster/namespace/workload all apply (inheritance)
+        val types = if (resourceType == "workload") listOf("workload", "namespace", "cluster") else listOf(resourceType)
+        ResourceTags
+            .select(ResourceTags.tag)
+            .where {
+                (ResourceTags.tenantId eq tenantId) and
+                (ResourceTags.resourceType inList types)
+            }
+            .map { it[ResourceTags.tag] }
+            .distinct()
+            .sorted()
+    }
+
     suspend fun listNamespaces(tenantId: Long, clusterId: Long?): List<NamespaceItem> = dbQuery {
         (Namespaces innerJoin Clusters)
             .select(Namespaces.namespaceId, Namespaces.namespaceName, Namespaces.clusterId, Clusters.clusterName)

@@ -1,24 +1,11 @@
+apiVersion: titlis.io/v1
+kind: Service
 metadata:
   name: titlis-api
-  workload_match:
-    namespaces: [titlis-preprod, titlis-prod]
-    name_pattern: "^titlis-api$"
 spec:
-  owner:
-    team: platform
-    contacts:
-      - type: slack
-        value: "#platform-oncall"
-  gitops:
-    paths:
-      dev:
-        path: manifest/kubernetes/develop/deploy.yaml
-        base_branch: develop
-      hml:
-        path: manifest/kubernetes/release/deploy.yaml
-        base_branch: release
-      prd:
-        path: manifest/kubernetes/main/deploy.yaml
-        base_branch: main
-  remediation:
-    enabled: true
+  product: titlis
+  team: platform
+  tier: tier-1
+  description: Backend REST, ingestão de eventos e proxy para IA (Kotlin/Ktor).
+  workloads:
+    - titlis-api

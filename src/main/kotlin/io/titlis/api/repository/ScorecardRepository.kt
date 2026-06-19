@@ -932,7 +932,67 @@ class ScorecardRepository {
             }
     }
 
-    suspend fun getDashboard(tenantId: Long, clusterName: String? = null): List<Map<String, Any?>> = dbQuery {
+    suspend fun getDashboard(tenantId: Long, clusterName: String? = null, tags: List<String>? = null): List<Map<String, Any?>> = dbQuery {
+        val tagFilterIds: Set<Long>? = if (!tags.isNullOrEmpty()) {
+            // Direct workload tags
+            val directIds = ResourceTags
+                .select(ResourceTags.resourceId)
+                .where {
+                    (ResourceTags.tenantId eq tenantId) and
+                        (ResourceTags.resourceType eq "workload") and
+                        (ResourceTags.tag inList tags)
+                }
+                .map { it[ResourceTags.resourceId] }
+                .toSet()
+
+            // Namespace tags → inherit to all workloads in those namespaces
+            val taggedNamespaceIds = ResourceTags
+                .select(ResourceTags.resourceId)
+                .where {
+                    (ResourceTags.tenantId eq tenantId) and
+                        (ResourceTags.resourceType eq "namespace") and
+                        (ResourceTags.tag inList tags)
+                }
+                .map { it[ResourceTags.resourceId] }
+                .toSet()
+            val fromNamespaceIds = if (taggedNamespaceIds.isNotEmpty()) {
+                Workloads
+                    .select(Workloads.workloadId)
+                    .where { (Workloads.namespaceId inList taggedNamespaceIds) and (Workloads.isActive eq true) }
+                    .map { it[Workloads.workloadId] }
+                    .toSet()
+            } else emptySet()
+
+            // Cluster tags → inherit through namespaces to workloads
+            val taggedClusterIds = ResourceTags
+                .select(ResourceTags.resourceId)
+                .where {
+                    (ResourceTags.tenantId eq tenantId) and
+                        (ResourceTags.resourceType eq "cluster") and
+                        (ResourceTags.tag inList tags)
+                }
+                .map { it[ResourceTags.resourceId] }
+                .toSet()
+            val fromClusterIds = if (taggedClusterIds.isNotEmpty()) {
+                val clusterNamespaceIds = Namespaces
+                    .select(Namespaces.namespaceId)
+                    .where { (Namespaces.clusterId inList taggedClusterIds) and (Namespaces.isExcluded eq false) }
+                    .map { it[Namespaces.namespaceId] }
+                    .toSet()
+                if (clusterNamespaceIds.isNotEmpty()) {
+                    Workloads
+                        .select(Workloads.workloadId)
+                        .where { (Workloads.namespaceId inList clusterNamespaceIds) and (Workloads.isActive eq true) }
+                        .map { it[Workloads.workloadId] }
+                        .toSet()
+                } else emptySet()
+            } else emptySet()
+
+            directIds + fromNamespaceIds + fromClusterIds
+        } else null
+
+        if (tagFilterIds != null && tagFilterIds.isEmpty()) return@dbQuery emptyList()
+
         val query = (Workloads innerJoin Namespaces innerJoin Clusters)
             .leftJoin(AppScorecards, { Workloads.workloadId }, { AppScorecards.workloadId })
             .leftJoin(AppRemediations, { Workloads.workloadId }, { AppRemediations.workloadId })
@@ -958,6 +1018,10 @@ class ScorecardRepository {
 
         if (clusterName != null) {
             query.andWhere { Clusters.clusterName eq clusterName }
+        }
+
+        if (tagFilterIds != null) {
+            query.andWhere { Workloads.workloadId inList tagFilterIds }
         }
 
         query.map { row ->

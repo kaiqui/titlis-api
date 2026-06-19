@@ -16,11 +16,18 @@ object DatabaseMigrator {
                 .baselineOnMigrate(true)
                 .baselineVersion("1")
                 .validateOnMigrate(true)
+                // Aplica migrations com versão menor que a já instalada (ex.: V10 adicionada
+                // depois de V11-V21 já estarem no banco). Sem isto o Flyway PULA a migration
+                // silenciosamente e o schema fica defasado (ex.: clerk_user_id ausente).
+                .outOfOrder(true)
                 .load()
             flyway.repair()
             val result = flyway.migrate()
             log.info("Migrations complete: {} applied, target schema version: {}",
                 result.migrationsExecuted, result.targetSchemaVersion)
+            if (result.migrationsExecuted > 0) {
+                log.info("Migrations aplicadas: {}", result.migrations.joinToString { it.version })
+            }
         } catch (e: Exception) {
             log.error("Database migration failed — app will continue but schema may be stale", e)
         }

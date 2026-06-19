@@ -16,6 +16,7 @@ import io.titlis.api.auth.AppPrincipal
 import io.titlis.api.auth.RequestAuthenticator
 import io.titlis.api.auth.protectedProviderNames
 import io.titlis.api.domain.UdpEnvelope
+import io.titlis.api.repository.AiConfigRepository
 import io.titlis.api.repository.ApiKeyRepository
 import io.titlis.api.repository.SloRepository
 import io.titlis.api.udp.EventRouter
@@ -33,11 +34,18 @@ data class MarkChangeFailedRequest(
     val error: String,
 )
 
+@Serializable
+data class OperatorAiConfigResponse(
+    val githubToken: String?,
+    val githubBaseBranch: String,
+)
+
 fun Application.operatorRoutes(
     sloRepo: SloRepository,
     apiKeyRepo: ApiKeyRepository,
     eventRouter: EventRouter,
     requestAuthenticator: RequestAuthenticator? = null,
+    aiConfigRepo: AiConfigRepository = AiConfigRepository(),
 ) {
     routing {
         // Operator API-key-authenticated endpoints
@@ -62,6 +70,16 @@ fun Application.operatorRoutes(
                     }
                 eventRouter.routeHttp(envelope, tenantId, rawKey)
                 call.respond(HttpStatusCode.Accepted)
+            }
+
+            get("/ai-config") {
+                val tenantId = resolveApiKeyTenant(call, apiKeyRepo)
+                    ?: return@get call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "invalid_api_key"))
+                val cfg = aiConfigRepo.getByTenant(tenantId)
+                call.respond(OperatorAiConfigResponse(
+                    githubToken       = cfg?.githubTokenEnc,
+                    githubBaseBranch  = cfg?.githubBaseBranch ?: "main",
+                ))
             }
 
             get("/pending-slo-changes") {

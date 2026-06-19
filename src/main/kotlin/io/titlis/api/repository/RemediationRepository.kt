@@ -11,6 +11,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.add
+import org.jetbrains.exposed.sql.JoinType
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.insert
@@ -113,6 +114,26 @@ class RemediationRepository {
         val workloadId = resolveWorkloadId(k8sUid, tenantId)
         val now = OffsetDateTime.now(ZoneOffset.UTC)
         val pendingJson = buildJsonArray { findingIds.forEach { add(it) } }.toString()
+
+        val existing = AppRemediations
+            .select(AppRemediations.appRemediationStatus, AppRemediations.version)
+            .where { AppRemediations.workloadId eq workloadId }
+            .singleOrNull()
+
+        RemediationHistory.insert {
+            it[RemediationHistory.workloadId] = workloadId
+            it[RemediationHistory.tenantId] = tenantId
+            it[RemediationHistory.remediationVersion] = 1
+            it[RemediationHistory.appRemediationStatus] = "IN_PROGRESS"
+            it[RemediationHistory.previousAppRemediationStatus] = existing?.get(AppRemediations.appRemediationStatus)
+            it[RemediationHistory.githubPrNumber] = prNumber
+            it[RemediationHistory.githubPrUrl] = prUrl?.take(500)
+            it[RemediationHistory.githubBranch] = githubBranch?.take(255)
+            it[RemediationHistory.repositoryUrl] = repositoryUrl?.take(500)
+            it[RemediationHistory.triggeredAt] = now
+            it[RemediationHistory.createdAt] = now
+        }
+
         AppRemediations.upsert(
             AppRemediations.workloadId,
             onUpdateExclude = listOf(AppRemediations.createdAt),
@@ -234,6 +255,127 @@ class RemediationRepository {
             it[AppRemediations.resolvedAt] = now
             it[AppRemediations.updatedAt] = now
         }
+    }
+
+    suspend fun getTimeline(tenantId: Long, days: Int): Map<String, Any?> = dbQuery {
+        val since = OffsetDateTime.now(ZoneOffset.UTC).minusDays(days.toLong())
+        val terminalStatuses = listOf("PR_MERGED", "FAILED", "PR_CLOSED")
+
+        // Source 1: RemediationHistory (audit trail — multiple status transitions per PR)
+        val historyRows = RemediationHistory
+            .join(Workloads, JoinType.INNER, RemediationHistory.workloadId, Workloads.workloadId)
+            .join(Namespaces, JoinType.INNER, Workloads.namespaceId, Namespaces.namespaceId)
+            .join(Clusters, JoinType.INNER, Namespaces.clusterId, Clusters.clusterId)
+            .select(
+                RemediationHistory.workloadId,
+                RemediationHistory.appRemediationStatus,
+                RemediationHistory.githubPrNumber,
+                RemediationHistory.githubPrUrl,
+                RemediationHistory.triggeredAt,
+                RemediationHistory.resolvedAt,
+                Workloads.workloadName,
+                Namespaces.namespaceName,
+                Clusters.clusterName,
+                Clusters.environment,
+            )
+            .where {
+                (RemediationHistory.tenantId eq tenantId) and
+                    (RemediationHistory.triggeredAt greaterEq since) and
+                    RemediationHistory.githubPrNumber.isNotNull()
+            }
+            .orderBy(RemediationHistory.triggeredAt, SortOrder.DESC)
+            .toList()
+
+        val historyPrKeys = historyRows.map {
+            Pair(it[RemediationHistory.workloadId], it[RemediationHistory.githubPrNumber])
+        }.toSet()
+
+        // Source 2: AppRemediations — PRs created via HTTP path (notify_api) that have no history entry yet
+        val oltpRows = AppRemediations
+            .join(Workloads, JoinType.INNER, AppRemediations.workloadId, Workloads.workloadId)
+            .join(Namespaces, JoinType.INNER, Workloads.namespaceId, Namespaces.namespaceId)
+            .join(Clusters, JoinType.INNER, Namespaces.clusterId, Clusters.clusterId)
+            .select(
+                AppRemediations.workloadId,
+                AppRemediations.appRemediationStatus,
+                AppRemediations.githubPrNumber,
+                AppRemediations.githubPrUrl,
+                AppRemediations.triggeredAt,
+                AppRemediations.resolvedAt,
+                Workloads.workloadName,
+                Namespaces.namespaceName,
+                Clusters.clusterName,
+                Clusters.environment,
+            )
+            .where {
+                (AppRemediations.tenantId eq tenantId) and
+                    (AppRemediations.triggeredAt greaterEq since) and
+                    AppRemediations.githubPrNumber.isNotNull()
+            }
+            .toList()
+            .filter { row ->
+                Pair(row[AppRemediations.workloadId], row[AppRemediations.githubPrNumber]) !in historyPrKeys
+            }
+
+        // Build items from history (group by PR to resolve final status across transitions)
+        val prGroups = historyRows.groupBy {
+            Pair(it[RemediationHistory.workloadId], it[RemediationHistory.githubPrNumber])
+        }
+        val historyItems = prGroups.map { (_, transitions) ->
+            val latest = transitions.first()
+            val terminal = transitions.firstOrNull { it[RemediationHistory.appRemediationStatus] in terminalStatuses }
+            val status = terminal?.get(RemediationHistory.appRemediationStatus)
+                ?: latest[RemediationHistory.appRemediationStatus]
+            val firstTriggered = transitions.minByOrNull { it[RemediationHistory.triggeredAt] }
+            mapOf(
+                "workload" to latest[Workloads.workloadName],
+                "namespace" to latest[Namespaces.namespaceName],
+                "cluster" to latest[Clusters.clusterName],
+                "environment" to latest[Clusters.environment],
+                "status" to status,
+                "github_pr_number" to latest[RemediationHistory.githubPrNumber],
+                "github_pr_url" to latest[RemediationHistory.githubPrUrl],
+                "triggered_at" to (firstTriggered?.get(RemediationHistory.triggeredAt)?.toString() ?: latest[RemediationHistory.triggeredAt].toString()),
+                "resolved_at" to terminal?.get(RemediationHistory.resolvedAt)?.toString(),
+            )
+        }
+
+        // Build items from OLTP fallback (current state, no history entries)
+        val oltpItems = oltpRows.map { row ->
+            mapOf(
+                "workload" to row[Workloads.workloadName],
+                "namespace" to row[Namespaces.namespaceName],
+                "cluster" to row[Clusters.clusterName],
+                "environment" to row[Clusters.environment],
+                "status" to row[AppRemediations.appRemediationStatus],
+                "github_pr_number" to row[AppRemediations.githubPrNumber],
+                "github_pr_url" to row[AppRemediations.githubPrUrl],
+                "triggered_at" to row[AppRemediations.triggeredAt].toString(),
+                "resolved_at" to row[AppRemediations.resolvedAt]?.toString(),
+            )
+        }
+
+        val items = (historyItems + oltpItems).sortedByDescending { it["triggered_at"] as? String }
+
+        val totalPrs = items.size
+        val mergedCount = items.count { it["status"] == "PR_MERGED" }
+        val failedCount = items.count { it["status"] in listOf("FAILED", "PR_CLOSED") }
+        val inProgressCount = totalPrs - mergedCount - failedCount
+        val successRate = if (mergedCount + failedCount > 0)
+            (mergedCount.toDouble() / (mergedCount + failedCount) * 100).let { Math.round(it * 10) / 10.0 }
+        else null
+
+        mapOf(
+            "period_days" to days,
+            "summary" to mapOf(
+                "total_prs" to totalPrs,
+                "merged" to mergedCount,
+                "failed" to failedCount,
+                "in_progress" to inProgressCount,
+                "success_rate" to successRate,
+            ),
+            "items" to items,
+        )
     }
 
     suspend fun closePr(k8sUid: String, tenantId: Long) = dbQuery {

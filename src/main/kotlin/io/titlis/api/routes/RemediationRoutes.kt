@@ -26,6 +26,13 @@ fun Application.remediationRoutes(
                         ?: return@get call.respond(HttpStatusCode.NotFound)
                     call.respondJson(result)
                 }
+
+                get("/remediation/history") {
+                    val principal = call.principal<AppPrincipal>()
+                    val days = call.request.queryParameters["days"]?.toIntOrNull()?.coerceIn(1, 365) ?: 30
+                    val result = repo.getTimeline(principal?.tenantId ?: 0, days)
+                    call.respondJson(result)
+                }
             }
 
             if (requestAuthenticator == null) {

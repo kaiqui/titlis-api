@@ -212,3 +212,23 @@ data class CampaignItemCompletedEvent(
     @SerialName("workload_uid") val workloadUid: String,
     val status: String, // succeeded | failed | skipped
 )
+
+@Serializable
+data class ServiceDefinitionSyncedEvent(
+    @SerialName("service_name") val serviceName: String,
+    val team: String,
+    val product: String? = null,
+    val tier: String? = null,
+    val description: String? = null,
+    @SerialName("repo_url")  val repoUrl: String? = null,
+    val workloads: List<String> = emptyList(),
+    @SerialName("raw_yaml")  val rawYaml: String? = null,
+    val integrations: List<QueueIntegrationSpec> = emptyList(),
+)
+
+@Serializable
+data class QueueIntegrationSpec(
+    val type: String = "gcp_pubsub",
+    val match: String = "display_name", // display_name | external_id | topic_id
+    val queues: List<String> = emptyList(),
+)

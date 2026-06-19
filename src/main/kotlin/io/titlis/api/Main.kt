@@ -60,9 +60,28 @@ import io.titlis.api.routes.operatorScoringRoutes
 import io.titlis.api.routes.settingsInsightsRoutes
 import io.titlis.api.routes.settingsPrbotRoutes
 import io.titlis.api.routes.internalInsightsRoutes
+import io.titlis.api.routes.gcpBillingSettingsRoutes
+import io.titlis.api.routes.internalCostRoutes
+import io.titlis.api.routes.costIngestRoutes
+import io.titlis.api.routes.datadogSettingsRoutes
+import io.titlis.api.routes.internalQueueRoutes
+import io.titlis.api.routes.labelRegistryRoutes
+import io.titlis.api.routes.operatorQueueRoutes
+import io.titlis.api.routes.queueRoutes
+import io.titlis.api.routes.reliabilityRoutes
+import io.titlis.api.repository.CostRepository
+import io.titlis.api.repository.GcpBillingConfigRepository
+import io.titlis.api.repository.LabelRegistryRepository
+import io.titlis.api.repository.QueueRepository
+import io.titlis.api.repository.ReliabilityRepository
+import io.titlis.api.repository.ServiceDefinitionRepository
 
 import io.titlis.api.routes.sloRoutes
+import io.titlis.api.routes.v2Routes
 import io.titlis.api.udp.EventRouter
+import io.titlis.api.auth.ClerkJwtVerifier
+import io.titlis.api.repository.TeamInviteRepository
+import io.titlis.api.services.ClerkProvisionService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -72,7 +91,7 @@ fun main() {
     embeddedServer(Netty, configure = {
         connector { port = 8080 }
         responseWriteTimeoutSeconds = 300
-        requestReadTimeoutSeconds = 30
+        requestReadTimeoutSeconds   = 120
     }, module = Application::module).start(wait = true)
 }
 
@@ -82,7 +101,13 @@ fun Application.module() {
     DatabaseMigrator.migrate(config.databaseMigration)
     DatabaseFactory.init(config.database)
 
-    val adminRepo         = AdminRepository()
+    val adminRepo           = AdminRepository()
+    val costRepo            = CostRepository()
+    val gcpBillingRepo      = GcpBillingConfigRepository()
+    val queueRepo           = QueueRepository()
+    val serviceDefRepo      = ServiceDefinitionRepository()
+    val reliabilityRepo     = ReliabilityRepository()
+    val labelRegistryRepo   = LabelRegistryRepository()
     val scorecardRepo    = ScorecardRepository()
     val remediationRepo  = RemediationRepository()
     val sloRepo          = SloRepository()
@@ -100,6 +125,9 @@ fun Application.module() {
     val tokenService    = LocalTokenService(config.auth)
     val oktaVerifier    = OktaTokenVerifier(config.auth)
     val requestAuthenticator = RequestAuthenticator(config.auth, authRepo, tokenService, oktaVerifier)
+    val clerkVerifier = config.clerk.jwksUrl?.let { ClerkJwtVerifier(it) }
+    val teamInviteRepo = TeamInviteRepository()
+    val clerkProvisionService = ClerkProvisionService(teamInviteRepo)
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val router = EventRouter(scorecardRepo, remediationRepo, sloRepo, metricsRepo, apiKeyRepo, scope, campaignRepo)
@@ -163,7 +191,7 @@ fun Application.module() {
     authRoutes(authRepo, tokenService, requestAuthenticator, apiKeyRepo, oktaVerifier)
     settingsAuthRoutes(authRepo)
     apiKeyRoutes(apiKeyRepo)
-    scorecardRoutes(scorecardRepo, favoriteRepo, requestAuthenticator)
+    scorecardRoutes(scorecardRepo, favoriteRepo, tagRepo, requestAuthenticator)
     favoriteRoutes(favoriteRepo, requestAuthenticator)
     remediationRoutes(remediationRepo, requestAuthenticator)
     sloRoutes(sloRepo, requestAuthenticator)
@@ -183,4 +211,14 @@ fun Application.module() {
     internalInsightsRoutes(aiConfigRepo, config.aiService.internalSecret)
     internalPrbotRoutes(scorecardRepo, aiConfigRepo, config.aiService.internalSecret)
     internalScorecardRoutes(scorecardRepo, remediationRepo, config.scoreops.secret)
+    gcpBillingSettingsRoutes(gcpBillingRepo)
+    internalCostRoutes(gcpBillingRepo, costRepo, config.cost.internalSecret)
+    costIngestRoutes(costRepo, gcpBillingRepo, config.cost.internalSecret)
+    queueRoutes(queueRepo, serviceDefRepo)
+    reliabilityRoutes(reliabilityRepo)
+    internalQueueRoutes(queueRepo, config.scoreops.secret)
+    operatorQueueRoutes(queueRepo, labelRegistryRepo, aiConfigRepo, apiKeyRepo, scoreopsClient, scope)
+    datadogSettingsRoutes(aiConfigRepo, queueRepo)
+    labelRegistryRoutes(labelRegistryRepo)
+    v2Routes(clerkVerifier, config.clerk.webhookSecret, teamInviteRepo, clerkProvisionService, scorecardRepo, aiConfigRepo, config)
 }

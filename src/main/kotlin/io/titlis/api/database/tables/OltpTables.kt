@@ -68,6 +68,8 @@ object Workloads : Table("titlis_oltp.workloads") {
     val ddGitRepositoryUrl   = varchar("dd_git_repository_url", 500).nullable()
     val backstageComponent   = varchar("backstage_component", 255).nullable()
     val ownerTeam            = varchar("owner_team", 255).nullable()
+    val team                 = text("team").nullable()              // populado via .titlis/service.yaml (Fase 2)
+    val serviceDefinitionId  = long("service_definition_id").references(ServiceDefinitions.serviceDefinitionId).nullable()
     val labels               = jsonbText("labels").nullable()
     val annotations          = jsonbText("annotations").nullable()
     val resourceVersion      = varchar("resource_version", 100).nullable()
@@ -218,6 +220,7 @@ object PlatformUsers : Table("titlis_oltp.platform_users") {
     val createdAt = timestampWithTimeZone("created_at")
     val updatedAt = timestampWithTimeZone("updated_at")
     val deletedAt = timestampWithTimeZone("deleted_at").nullable()
+    val clerkUserId = text("clerk_user_id").nullable().uniqueIndex()
     override val primaryKey = PrimaryKey(platformUserId)
 }
 
@@ -286,11 +289,13 @@ object TenantAiConfigs : Table("titlis_oltp.tenant_ai_configs") {
     val monthlyTokenBudget      = integer("monthly_token_budget").nullable()
     val tokensUsedMonth         = integer("tokens_used_month").default(0)
     val isActive                = bool("is_active").default(true)
-    val ddApiKeyEnc             = text("dd_api_key_enc").nullable()
-    val ddAppKeyEnc             = text("dd_app_key_enc").nullable()
-    val ddSite                  = text("dd_site").default("datadoghq.com")
-    val createdAt               = timestampWithTimeZone("created_at")
-    val updatedAt               = timestampWithTimeZone("updated_at")
+    val ddApiKeyEnc              = text("dd_api_key_enc").nullable()
+    val ddAppKeyEnc              = text("dd_app_key_enc").nullable()
+    val ddSite                   = text("dd_site").default("datadoghq.com")
+    val queueMonitoringEnabled   = bool("queue_monitoring_enabled").default(false)
+    val monitorCreationEnabled   = bool("monitor_creation_enabled").default(false)
+    val createdAt                = timestampWithTimeZone("created_at")
+    val updatedAt                = timestampWithTimeZone("updated_at")
     override val primaryKey = PrimaryKey(tenantId)
 }
 
@@ -325,6 +330,16 @@ object PlatformUserInvites : Table("titlis_oltp.platform_user_invites") {
     val createdAt = timestampWithTimeZone("created_at")
     val updatedAt = timestampWithTimeZone("updated_at")
     override val primaryKey = PrimaryKey(platformUserInviteId)
+}
+
+object TenantTeamInvites : Table("titlis_oltp.tenant_team_invites") {
+    val tenantTeamInviteId = long("tenant_team_invite_id").autoIncrement()
+    val tenantId           = long("tenant_id").references(Tenants.tenantId)
+    val email              = varchar("email", 320)
+    val titlisRole         = varchar("titlis_role", 50).default("viewer")
+    val createdAt          = timestampWithTimeZone("created_at")
+    val provisionedAt      = timestampWithTimeZone("provisioned_at").nullable()
+    override val primaryKey = PrimaryKey(tenantTeamInviteId)
 }
 
 object PrCampaigns : Table("titlis_oltp.pr_campaigns") {

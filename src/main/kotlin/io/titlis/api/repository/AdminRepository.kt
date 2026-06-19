@@ -1,5 +1,6 @@
 package io.titlis.api.repository
 
+import io.titlis.api.auth.PlatformRole
 import io.titlis.api.database.DatabaseFactory.dbQuery
 import io.titlis.api.database.tables.AppRemediations
 import io.titlis.api.database.tables.AppScorecards
@@ -28,6 +29,7 @@ import org.jetbrains.exposed.sql.count
 import org.jetbrains.exposed.sql.select
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.sum
+import org.jetbrains.exposed.sql.update
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 
@@ -168,6 +170,28 @@ class AdminRepository {
             ),
             ai = ai,
         )
+    }
+
+    suspend fun updateUserRole(userId: Long, tenantId: Long, newRole: PlatformRole, callerId: Long): Boolean = dbQuery {
+        val user = PlatformUsers
+            .select(PlatformUsers.platformUserId, PlatformUsers.isBreakGlass)
+            .where {
+                (PlatformUsers.platformUserId eq userId) and
+                    (PlatformUsers.tenantId eq tenantId) and
+                    (PlatformUsers.isActive eq true) and
+                    PlatformUsers.deletedAt.isNull()
+            }
+            .singleOrNull() ?: return@dbQuery false
+
+        if (user[PlatformUsers.isBreakGlass]) error("cannot_change_break_glass_user")
+
+        PlatformUsers.update({
+            (PlatformUsers.platformUserId eq userId) and (PlatformUsers.tenantId eq tenantId)
+        }) {
+            it[platformRole] = newRole.dbValue
+            it[updatedAt] = OffsetDateTime.now(ZoneOffset.UTC)
+        }
+        true
     }
 
     suspend fun listUsers(tenantId: Long): AdminUsersResponse = dbQuery {

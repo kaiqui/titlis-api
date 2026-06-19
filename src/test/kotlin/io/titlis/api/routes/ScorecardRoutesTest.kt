@@ -9,21 +9,23 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import io.titlis.api.repository.FavoriteRepository
 import io.titlis.api.repository.ScorecardRepository
+import io.titlis.api.repository.TagRepository
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class ScorecardRoutesTest {
 
     private val favoriteRepo = mockk<FavoriteRepository>(relaxed = true)
+    private val tagRepo = mockk<TagRepository>(relaxed = true)
 
     @Test
     fun `GET dashboard returns 200`() = testApplication {
         val repo = mockk<ScorecardRepository>()
-        coEvery { repo.getDashboard(any(), any()) } returns listOf(
+        coEvery { repo.getDashboard(any(), any(), any()) } returns listOf(
             mapOf("workload_id" to "abc", "overall_score" to 90.0)
         )
         application {
-            scorecardRoutes(repo, favoriteRepo)
+            scorecardRoutes(repo, favoriteRepo, tagRepo)
         }
         val response = client.get("/v1/dashboard")
         assertEquals(HttpStatusCode.OK, response.status)
@@ -36,7 +38,7 @@ class ScorecardRoutesTest {
 
         application {
             installTestSecurity(authenticator)
-            scorecardRoutes(repo, favoriteRepo, authenticator)
+            scorecardRoutes(repo, favoriteRepo, tagRepo, authenticator)
         }
 
         val response = client.get("/v1/dashboard")
@@ -47,13 +49,13 @@ class ScorecardRoutesTest {
     fun `GET dashboard forwards tenant id from dev bypass`() = testApplication {
         val repo = mockk<ScorecardRepository>()
         val authenticator = testRequestAuthenticator()
-        coEvery { repo.getDashboard(42, null) } returns listOf(
+        coEvery { repo.getDashboard(42, null, null) } returns listOf(
             mapOf("workload_id" to "abc", "overall_score" to 90.0)
         )
 
         application {
             installTestSecurity(authenticator)
-            scorecardRoutes(repo, favoriteRepo, authenticator)
+            scorecardRoutes(repo, favoriteRepo, tagRepo, authenticator)
         }
 
         val response = client.get("/v1/dashboard") {
@@ -64,6 +66,6 @@ class ScorecardRoutesTest {
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        coVerify(exactly = 1) { repo.getDashboard(42, null) }
+        coVerify(exactly = 1) { repo.getDashboard(42, null, null) }
     }
 }

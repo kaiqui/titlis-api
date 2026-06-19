@@ -70,3 +70,8 @@ data class AdminUserItem(
 data class AdminUsersResponse(
     val users: List<AdminUserItem>,
 )
+
+@Serializable
+data class UpdateUserRoleRequest(
+    val role: String,
+)
