@@ -3,6 +3,7 @@ package io.titlis.api.domain
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 @Serializable
@@ -224,6 +225,11 @@ data class ServiceDefinitionSyncedEvent(
     val workloads: List<String> = emptyList(),
     @SerialName("raw_yaml")  val rawYaml: String? = null,
     val integrations: List<QueueIntegrationSpec> = emptyList(),
+    // Fase 0 (service-yaml-discovery): correlação por pattern usada na Fase 1; gitops/remediation
+    // são persistidos como JSONB e consumidos pela remediação.
+    @SerialName("workload_match") val workloadMatch: WorkloadMatchSpec? = null,
+    @SerialName("gitops_paths")   val gitopsPaths: JsonElement? = null,
+    val remediation: JsonElement? = null,
 )
 
 @Serializable
@@ -231,4 +237,10 @@ data class QueueIntegrationSpec(
     val type: String = "gcp_pubsub",
     val match: String = "display_name", // display_name | external_id | topic_id
     val queues: List<String> = emptyList(),
+)
+
+@Serializable
+data class WorkloadMatchSpec(
+    val namespaces: List<String> = emptyList(),
+    @SerialName("name_pattern") val namePattern: String? = null,
 )

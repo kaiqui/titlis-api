@@ -418,6 +418,10 @@ class ScorecardRepository {
                 Workloads.k8sUid,
                 Workloads.workloadName,
                 Workloads.workloadKind,
+                Workloads.serviceDefinitionId,
+                Workloads.team,
+                Workloads.githubRepoUrl,
+                Workloads.serviceYamlPath,
                 Namespaces.namespaceName,
                 Clusters.clusterName,
                 Clusters.environment,
@@ -527,6 +531,20 @@ class ScorecardRepository {
                 }
         } ?: emptyList()
 
+        // Fase 3 (service-yaml-discovery): repo + gitops vêm do service_definition vinculado
+        // (descoberto pelo worker) — substitui as labels titlis.io/* mortas no titlis-ai.
+        val serviceDefId = scorecardRow[Workloads.serviceDefinitionId]
+        val serviceDefRow = serviceDefId?.let { sdId ->
+            ServiceDefinitions
+                .select(ServiceDefinitions.repoUrl, ServiceDefinitions.gitopsPaths, ServiceDefinitions.team)
+                .where { ServiceDefinitions.serviceDefinitionId eq sdId }
+                .singleOrNull()
+        }
+        val serviceRepoUrl = serviceDefRow?.get(ServiceDefinitions.repoUrl)
+            ?: scorecardRow[Workloads.githubRepoUrl]
+        val gitopsPathsJson = serviceDefRow?.get(ServiceDefinitions.gitopsPaths)
+        val serviceTeam = scorecardRow[Workloads.team] ?: serviceDefRow?.get(ServiceDefinitions.team)
+
         mapOf(
             "workload_id" to scorecardRow[Workloads.k8sUid],
             "workload" to scorecardRow[Workloads.workloadName],
@@ -534,6 +552,10 @@ class ScorecardRepository {
             "namespace" to scorecardRow[Namespaces.namespaceName],
             "cluster" to scorecardRow[Clusters.clusterName],
             "environment" to scorecardRow[Clusters.environment],
+            "service_repo_url" to serviceRepoUrl,
+            "service_yaml_path" to scorecardRow[Workloads.serviceYamlPath],
+            "gitops_paths" to gitopsPathsJson,
+            "team" to serviceTeam,
             "overall_score" to scorecardRow[AppScorecards.overallScore],
             "compliance_status" to scorecardRow[AppScorecards.complianceStatus],
             "version" to scorecardRow[AppScorecards.version],
@@ -764,6 +786,10 @@ class ScorecardRepository {
                 Workloads.k8sUid,
                 Workloads.workloadName,
                 Workloads.workloadKind,
+                Workloads.serviceDefinitionId,
+                Workloads.team,
+                Workloads.githubRepoUrl,
+                Workloads.serviceYamlPath,
                 Namespaces.namespaceName,
                 Clusters.clusterName,
                 Clusters.environment,
@@ -833,6 +859,19 @@ class ScorecardRepository {
                 }
         } ?: emptyList()
 
+        // Fase 3.5: mesmo enriquecimento de getByWorkloadId — repo/gitops do service_definition.
+        val serviceDefId = scorecardRow[Workloads.serviceDefinitionId]
+        val serviceDefRow = serviceDefId?.let { sdId ->
+            ServiceDefinitions
+                .select(ServiceDefinitions.repoUrl, ServiceDefinitions.gitopsPaths, ServiceDefinitions.team)
+                .where { ServiceDefinitions.serviceDefinitionId eq sdId }
+                .singleOrNull()
+        }
+        val serviceRepoUrl = serviceDefRow?.get(ServiceDefinitions.repoUrl)
+            ?: scorecardRow[Workloads.githubRepoUrl]
+        val gitopsPathsJson = serviceDefRow?.get(ServiceDefinitions.gitopsPaths)
+        val serviceTeam = scorecardRow[Workloads.team] ?: serviceDefRow?.get(ServiceDefinitions.team)
+
         mapOf(
             "workload_id" to scorecardRow[Workloads.k8sUid],
             "workload" to scorecardRow[Workloads.workloadName],
@@ -840,6 +879,10 @@ class ScorecardRepository {
             "namespace" to scorecardRow[Namespaces.namespaceName],
             "cluster" to scorecardRow[Clusters.clusterName],
             "environment" to scorecardRow[Clusters.environment],
+            "service_repo_url" to serviceRepoUrl,
+            "service_yaml_path" to scorecardRow[Workloads.serviceYamlPath],
+            "gitops_paths" to gitopsPathsJson,
+            "team" to serviceTeam,
             "overall_score" to scorecardRow[AppScorecards.overallScore],
             "compliance_status" to scorecardRow[AppScorecards.complianceStatus],
             "version" to scorecardRow[AppScorecards.version],

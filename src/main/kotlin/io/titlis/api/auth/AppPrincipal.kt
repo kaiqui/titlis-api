@@ -5,6 +5,7 @@ import io.ktor.server.auth.Principal
 enum class AuthSource {
     LOCAL,
     OKTA,
+    CLERK,
     DEV_BYPASS,
     AUTH_DISABLED,
 }

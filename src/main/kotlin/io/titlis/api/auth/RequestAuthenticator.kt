@@ -12,6 +12,7 @@ class RequestAuthenticator(
     private val authRepository: AuthRepository,
     private val localTokenService: LocalTokenService,
     private val oktaTokenVerifier: OktaTokenVerifier,
+    private val clerkVerifier: ClerkJwtVerifier? = null,
 ) {
     private val logger = LoggerFactory.getLogger(RequestAuthenticator::class.java)
     private val authMode = AuthMode.from(config.authMode)
@@ -36,6 +37,15 @@ class RequestAuthenticator(
         localTokenService.verify(token)?.let { payload ->
             val userId = payload.sub.toLongOrNull() ?: return null
             return authRepository.getUser(userId)?.toPrincipal(AuthSource.LOCAL)
+        }
+
+        // Clerk (v2): aceita o session token do Clerk em qualquer endpoint /v1.
+        // Resolve o usuário interno por clerk_user_id (provisão acontece via /v2/auth/provision).
+        // Aditivo — não interfere em local/Okta; se não for um token Clerk válido, cai no Okta.
+        clerkVerifier?.verify(token)?.let { clerkIdentity ->
+            authRepository.getUserByClerkId(clerkIdentity.clerkUserId)?.let { user ->
+                return user.toPrincipal(AuthSource.CLERK)
+            }
         }
 
         if (authMode == AuthMode.OKTA || authMode == AuthMode.MIXED) {

@@ -23,6 +23,7 @@ import io.titlis.api.config.AppConfig
 import io.titlis.api.database.DatabaseFactory.dbQuery
 import io.titlis.api.database.tables.PlatformUsers
 import io.titlis.api.repository.AiConfigRepository
+import io.titlis.api.repository.ApiKeyRepository
 import io.titlis.api.repository.ScorecardRepository
 import io.titlis.api.repository.TeamInviteRepository
 import io.titlis.api.repository.TenantAiConfigRecord
@@ -72,6 +73,7 @@ fun Application.v2Routes(
     provisionService: ClerkProvisionService,
     scorecardRepo: ScorecardRepository,
     aiConfigRepo: AiConfigRepository,
+    apiKeyRepo: ApiKeyRepository,
     appConfig: AppConfig,
     httpClient: HttpClient = HttpClient.newBuilder()
         .version(HttpClient.Version.HTTP_1_1)
@@ -338,14 +340,91 @@ fun Application.v2Routes(
                 }
                 call.respond(HttpStatusCode.NoContent)
             }
+
+            // ─── API Keys do operator (Clerk JWT + admin) ─────────────────────────────
+            // Reusa ApiKeyRepository e os data classes de ApiKeyRoutes.kt (mesmo package).
+            // O tenantId vem do principal Clerk — nunca do payload (isolamento multi-tenant).
+            get("/settings/api-keys") {
+                val principal = call.requireClerkPrincipal(clerkVerifier, teamInviteRepo) ?: return@get
+                if (!principal.isAdmin) {
+                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "admin_required"))
+                    return@get
+                }
+                val keys = apiKeyRepo.listByTenant(principal.tenantId)
+                call.respond(keys.map { it.toApiKeyListItem() })
+            }
+
+            get("/settings/api-keys/connection-status") {
+                val principal = call.requireClerkPrincipal(clerkVerifier, teamInviteRepo) ?: return@get
+                if (!principal.isAdmin) {
+                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "admin_required"))
+                    return@get
+                }
+                val keys = apiKeyRepo.listByTenant(principal.tenantId)
+                val lastEventAt = apiKeyRepo.lastEventAt(principal.tenantId)
+                call.respond(
+                    ApiKeyConnectionStatus(
+                        connected = lastEventAt != null,
+                        lastEventAt = lastEventAt?.toString(),
+                        activeKeyCount = keys.size,
+                    ),
+                )
+            }
+
+            post("/settings/api-keys") {
+                val principal = call.requireClerkPrincipal(clerkVerifier, teamInviteRepo) ?: return@post
+                if (!principal.isAdmin) {
+                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "admin_required"))
+                    return@post
+                }
+                val body = runCatching { json.decodeFromString<CreateApiKeyRequest>(call.receiveText()) }
+                    .getOrElse { CreateApiKeyRequest(description = null) }
+                val (record, rawToken) = apiKeyRepo.create(
+                    tenantId        = principal.tenantId,
+                    description     = body.description,
+                    createdByUserId = principal.platformUserId,
+                )
+                call.respond(
+                    HttpStatusCode.Created,
+                    CreateApiKeyResponse(
+                        id          = record.apiKeyId,
+                        prefix      = record.keyPrefix,
+                        description = record.description,
+                        rawToken    = rawToken,
+                        createdAt   = record.createdAt.toString(),
+                    ),
+                )
+            }
+
+            delete("/settings/api-keys/{id}") {
+                val principal = call.requireClerkPrincipal(clerkVerifier, teamInviteRepo) ?: return@delete
+                if (!principal.isAdmin) {
+                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "admin_required"))
+                    return@delete
+                }
+                val id = call.parameters["id"]?.toLongOrNull()
+                    ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_api_key_id"))
+                val ok = apiKeyRepo.revoke(id, principal.tenantId)
+                call.respond(if (ok) HttpStatusCode.NoContent else HttpStatusCode.NotFound)
+            }
         }
     }
 }
+
+private fun io.titlis.api.repository.ApiKeyRecord.toApiKeyListItem() = ApiKeyListItem(
+    id          = apiKeyId,
+    prefix      = keyPrefix,
+    description = description,
+    isActive    = isActive,
+    lastUsedAt  = lastUsedAt?.toString(),
+    createdAt   = createdAt.toString(),
+)
 
 // ─── Helpers de autenticação Clerk ───────────────────────────────────────────
 
 private data class ClerkPrincipal(
     val clerkUserId: String,
+    val platformUserId: Long,
     val tenantId: Long,
     val role: String,
 ) {
@@ -381,7 +460,7 @@ private suspend fun ApplicationCall.requireClerkPrincipal(
 
     val user = dbQuery {
         PlatformUsers
-            .select(PlatformUsers.tenantId, PlatformUsers.platformRole)
+            .select(PlatformUsers.platformUserId, PlatformUsers.tenantId, PlatformUsers.platformRole)
             .where {
                 (PlatformUsers.clerkUserId eq identity.clerkUserId) and
                 PlatformUsers.deletedAt.isNull()
@@ -397,6 +476,7 @@ private suspend fun ApplicationCall.requireClerkPrincipal(
 
     return ClerkPrincipal(
         clerkUserId = identity.clerkUserId,
+        platformUserId = user[PlatformUsers.platformUserId],
         tenantId = user[PlatformUsers.tenantId],
         role = user[PlatformUsers.platformRole],
     )

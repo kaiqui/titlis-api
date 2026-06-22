@@ -143,15 +143,18 @@ class EventRouter(
                 serviceDefRepo.upsert(
                     tenantId = tenantId,
                     event = ServiceDefinitionEvent(
-                        serviceName  = event.serviceName,
-                        team         = event.team,
-                        product      = event.product,
-                        tier         = event.tier,
-                        description  = event.description,
-                        repoUrl      = event.repoUrl,
-                        workloads    = event.workloads,
-                        rawYaml      = event.rawYaml,
-                        integrations = event.integrations,
+                        serviceName     = event.serviceName,
+                        team            = event.team,
+                        product         = event.product,
+                        tier            = event.tier,
+                        description     = event.description,
+                        repoUrl         = event.repoUrl,
+                        workloads       = event.workloads,
+                        rawYaml         = event.rawYaml,
+                        integrations    = event.integrations,
+                        workloadMatch   = event.workloadMatch,
+                        gitopsPathsJson = event.gitopsPaths?.toString(),
+                        remediationJson = event.remediation?.toString(),
                     ),
                 )
                 logger.info("service_definition_synced: service=${event.serviceName} team=${event.team} tenant=$tenantId")

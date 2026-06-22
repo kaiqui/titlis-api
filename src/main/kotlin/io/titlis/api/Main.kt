@@ -40,6 +40,7 @@ import io.titlis.api.routes.aiConfigRoutes
 import io.titlis.api.routes.aiRoutes
 import io.titlis.api.routes.gitHubLinkRoutes
 import io.titlis.api.routes.internalAiRoutes
+import io.titlis.api.routes.internalServicemapRoutes
 import io.titlis.api.routes.ragRoutes
 import io.titlis.api.routes.apiKeyRoutes
 import io.titlis.api.routes.authRoutes
@@ -67,9 +68,14 @@ import io.titlis.api.routes.datadogSettingsRoutes
 import io.titlis.api.routes.internalQueueRoutes
 import io.titlis.api.routes.labelRegistryRoutes
 import io.titlis.api.routes.operatorQueueRoutes
+import io.titlis.api.routes.operatorDiscoveryRoutes
 import io.titlis.api.routes.queueRoutes
 import io.titlis.api.routes.reliabilityRoutes
+import io.titlis.api.routes.coverageRoutes
+import io.titlis.api.routes.CoverageService
 import io.titlis.api.repository.CostRepository
+import io.titlis.api.repository.DiscoveryRepository
+import io.titlis.api.repository.CoverageRepository
 import io.titlis.api.repository.GcpBillingConfigRepository
 import io.titlis.api.repository.LabelRegistryRepository
 import io.titlis.api.repository.QueueRepository
@@ -105,6 +111,8 @@ fun Application.module() {
     val costRepo            = CostRepository()
     val gcpBillingRepo      = GcpBillingConfigRepository()
     val queueRepo           = QueueRepository()
+    val discoveryRepo       = DiscoveryRepository()
+    val coverageRepo        = CoverageRepository()
     val serviceDefRepo      = ServiceDefinitionRepository()
     val reliabilityRepo     = ReliabilityRepository()
     val labelRegistryRepo   = LabelRegistryRepository()
@@ -122,10 +130,11 @@ fun Application.module() {
     val passwordHasher   = PasswordHasher()
     val authRepo         = AuthRepository(passwordHasher)
     val scoreopsClient   = ScoreopsClient(config.scoreops.url, config.scoreops.secret)
+    val coverageService  = CoverageService(coverageRepo, sloRepo, scoreopsClient)
     val tokenService    = LocalTokenService(config.auth)
     val oktaVerifier    = OktaTokenVerifier(config.auth)
-    val requestAuthenticator = RequestAuthenticator(config.auth, authRepo, tokenService, oktaVerifier)
     val clerkVerifier = config.clerk.jwksUrl?.let { ClerkJwtVerifier(it) }
+    val requestAuthenticator = RequestAuthenticator(config.auth, authRepo, tokenService, oktaVerifier, clerkVerifier)
     val teamInviteRepo = TeamInviteRepository()
     val clerkProvisionService = ClerkProvisionService(teamInviteRepo)
 
@@ -197,10 +206,11 @@ fun Application.module() {
     sloRoutes(sloRepo, requestAuthenticator)
     operatorRoutes(sloRepo, apiKeyRepo, router, requestAuthenticator)
     aiConfigRoutes(aiConfigRepo, requestAuthenticator)
-    aiRoutes(scorecardRepo, aiConfigRepo, config, requestAuthenticator)
+    aiRoutes(scorecardRepo, aiConfigRepo, config, requestAuthenticator, coverageRepo = coverageRepo)
     gitHubLinkRoutes(scorecardRepo, aiConfigRepo, requestAuthenticator)
     ragRoutes(knowledgeRepo, config.aiService.internalSecret)
     internalAiRoutes(scorecardRepo, remediationRepo, sloRepo, config.aiService.internalSecret)
+    internalServicemapRoutes(aiConfigRepo, serviceDefRepo, config.aiService.internalSecret)
     settingsScoreConfigRoutes(scoreopsClient, scoreConfigRepo, requestAuthenticator)
     settingsTagsRoutes(tagRepo)
     settingsTagPoliciesRoutes(scoreopsClient, requestAuthenticator)
@@ -216,9 +226,11 @@ fun Application.module() {
     costIngestRoutes(costRepo, gcpBillingRepo, config.cost.internalSecret)
     queueRoutes(queueRepo, serviceDefRepo)
     reliabilityRoutes(reliabilityRepo)
+    coverageRoutes(coverageService, coverageRepo, config.aiService.internalSecret)
     internalQueueRoutes(queueRepo, config.scoreops.secret)
     operatorQueueRoutes(queueRepo, labelRegistryRepo, aiConfigRepo, apiKeyRepo, scoreopsClient, scope)
+    operatorDiscoveryRoutes(discoveryRepo, apiKeyRepo)
     datadogSettingsRoutes(aiConfigRepo, queueRepo)
     labelRegistryRoutes(labelRegistryRepo)
-    v2Routes(clerkVerifier, config.clerk.webhookSecret, teamInviteRepo, clerkProvisionService, scorecardRepo, aiConfigRepo, config)
+    v2Routes(clerkVerifier, config.clerk.webhookSecret, teamInviteRepo, clerkProvisionService, scorecardRepo, aiConfigRepo, apiKeyRepo, config)
 }

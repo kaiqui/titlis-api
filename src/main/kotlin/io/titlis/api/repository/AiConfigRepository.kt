@@ -53,6 +53,13 @@ class AiConfigRepository {
             ?.let { mapRow(it) }
     }
 
+    suspend fun listActive(): List<TenantAiConfigRecord> = dbQuery {
+        TenantAiConfigs
+            .select(TenantAiConfigs.columns)
+            .where { TenantAiConfigs.isActive eq true }
+            .map { mapRow(it) }
+    }
+
     suspend fun upsert(
         tenantId: Long,
         provider: String,

@@ -19,7 +19,9 @@ import io.titlis.api.auth.RequestAuthenticator
 import io.titlis.api.auth.protectedProviderNames
 import io.titlis.api.auth.requireRole
 import io.titlis.api.config.AppConfig
+import io.titlis.api.domain.CoverageScorecardDTO
 import io.titlis.api.repository.AiConfigRepository
+import io.titlis.api.repository.CoverageRepository
 import io.titlis.api.repository.TenantAiConfigRecord
 import io.titlis.api.repository.ScorecardRepository
 import kotlinx.coroutines.Dispatchers
@@ -107,6 +109,7 @@ fun Application.aiRoutes(
         .version(HttpClient.Version.HTTP_1_1)
         .connectTimeout(Duration.ofSeconds(10))
         .build(),
+    coverageRepo: CoverageRepository = CoverageRepository(),
 ) {
 
     routing {
@@ -308,6 +311,46 @@ fun Application.aiRoutes(
                     }
                 }
 
+                // Relatório executivo de cobertura (D5f): titlis-api monta os dados do grafo/coverage,
+                // o titlis-ai narra (sem gerar achados). SSE.
+                post("/coverage/report") {
+                    val principal = call.requireRole() ?: return@post
+
+                    val aiConfig = aiConfigRepo.getByTenant(principal.tenantId)
+                        ?: return@post call.respond(
+                            HttpStatusCode(424, "Failed Dependency"),
+                            mapOf("error" to "ai_not_configured"),
+                        )
+                    val budget = aiConfig.monthlyTokenBudget
+                    if (budget != null && aiConfig.tokensUsedMonth >= budget) {
+                        return@post call.respond(
+                            HttpStatusCode.TooManyRequests,
+                            buildJsonObject {
+                                put("error", "quota_exceeded")
+                                put("budget", budget)
+                                put("used", aiConfig.tokensUsedMonth)
+                            },
+                        )
+                    }
+
+                    val services = coverageRepo.listForTenant(principal.tenantId)
+                    val topRisks = coverageRepo.topRisks(principal.tenantId, 10)
+                    val aiPayload = buildAiCoverageReportPayload(principal.tenantId, aiConfig, services, topRisks)
+
+                    val aiRequest = HttpRequest.newBuilder()
+                        .uri(URI.create("${appConfig.aiService.url}/v1/coverage-report"))
+                        .header("Content-Type", "application/json")
+                        .header("X-Internal-Secret", appConfig.aiService.internalSecret)
+                        .POST(HttpRequest.BodyPublishers.ofString(aiPayload))
+                        .build()
+
+                    call.response.headers.append("Cache-Control", "no-cache")
+                    call.response.headers.append("X-Accel-Buffering", "no")
+                    call.respondBytesWriter(contentType = ContentType.parse("text/event-stream")) {
+                        withContext(Dispatchers.IO) { proxyAiSse(this@respondBytesWriter, httpClient, aiRequest) }
+                    }
+                }
+
                 post("/workloads/{workloadId}/findings/{ruleId}/explain") {
                     val principal = call.requireRole() ?: return@post
                     val workloadId = call.parameters["workloadId"]
@@ -500,4 +543,40 @@ private fun buildAiExplainPayload(
         put("monthly_token_budget", aiConfig.monthlyTokenBudget?.let { JsonPrimitive(it) } ?: JsonNull)
         put("tokens_used_month", aiConfig.tokensUsedMonth)
     })
+}.toString()
+
+private fun coverageServiceJson(s: CoverageScorecardDTO) = buildJsonObject {
+    put("service_name", s.serviceName?.let { JsonPrimitive(it) } ?: JsonNull)
+    put("workload_uid", s.workloadUid)
+    put("cluster", s.cluster?.let { JsonPrimitive(it) } ?: JsonNull)
+    put("trust_score", s.trustScore?.let { JsonPrimitive(it) } ?: JsonNull)
+    put("maturity", s.maturity)
+    put("gaps", buildJsonArray { s.findings.filter { it.outcome == "fail" }.forEach { add(JsonPrimitive(it.code)) } })
+    put("dimensions", buildJsonArray {
+        s.dimensions.forEach { d ->
+            add(buildJsonObject {
+                put("pillar", d.pillar)
+                put("pct", d.pct)
+                put("maturity_level", d.maturityLevel)
+            })
+        }
+    })
+}
+
+private fun buildAiCoverageReportPayload(
+    tenantId: Long,
+    aiConfig: TenantAiConfigRecord,
+    services: List<CoverageScorecardDTO>,
+    topRisks: List<CoverageScorecardDTO>,
+): String = buildJsonObject {
+    put("tenant_id", tenantId)
+    put("ai_config", buildJsonObject {
+        put("provider", aiConfig.provider)
+        put("model", aiConfig.model)
+        put("api_key", aiConfig.apiKeyEnc)
+        put("monthly_token_budget", aiConfig.monthlyTokenBudget?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("tokens_used_month", aiConfig.tokensUsedMonth)
+    })
+    put("services", buildJsonArray { services.forEach { add(coverageServiceJson(it)) } })
+    put("top_risks", buildJsonArray { topRisks.forEach { add(coverageServiceJson(it)) } })
 }.toString()

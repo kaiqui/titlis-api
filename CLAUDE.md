@@ -535,6 +535,8 @@ Os métodos `resolveClusterDisabled` e `resolveWorkloadDisabled` foram removidos
   use select-first + validação de ownership; veja `ScorecardRepository.ensureCluster()`
 - **Nunca** adicione guard "só pode existir um tenant" em `setupBootstrap()` — o sistema é
   multi-tenant por design; a proteção de duplicata é por `tenantSlug`, não por contagem de usuários
+- **Nunca** registre rota autenticada por JWT (`requireRole()`) fora de `authenticate(*protectedProviderNames(...))` — sem o plugin o principal é null → 401 (ver §16)
+- **Nunca** mostre na leitura de coverage scorecard de workload soft-deletado — filtre por `activeWorkloadUids` (regra 13)
 
 ---
 
@@ -560,3 +562,54 @@ Depois, em `ScorecardRepository.syncNamespaceExclusions()`, após setar `workloa
 adicionar UPDATE em `app_remediations` filtrando por `workloadId` e status em
 `('PENDING', 'IN_PROGRESS', 'PR_OPEN')` → `'CANCELLED'`.
 Considerar também um mecanismo de sinalização para o titlis-ai abortar o LangGraph thread.
+
+---
+
+## 16. Discovery Engine & Coverage (Observability Intelligence Platform)
+
+A titlis-api é a **fábrica grafo→snapshot** do plano: persiste o grafo de ativos enviado pelo operator
+e o transforma em `CoverageSnapshot` por serviço, que o scoreops pontua. O scoreops nunca vê o grafo.
+
+### Tabelas (migrations Flyway V24/V25, schema `titlis_oltp`, regra DBA 16)
+
+- `discovered_asset` (PK `discovered_asset_id`) — ativos do grafo; `UNIQUE(tenant_id, provider, external_id)`;
+  soft-delete via `is_active` (regra 13).
+- `asset_relation` (PK `asset_relation_id`) — edges; FK auto-referencial `source_/target_discovered_asset_id`.
+- `coverage_scorecard` (PK `coverage_scorecard_id`) — resultado do scoreops por workload;
+  `UNIQUE(tenant_id, workload_uid)`; `coverage_json`/`findings_json` JSONB.
+
+Tabelas Exposed em `database/tables/DiscoveryTables.kt`.
+
+### Componentes
+
+- `repository/DiscoveryRepository.kt` — `ingestAssetGraph`: upsert idempotente (resolve
+  `external_id → id` no mesmo batch) + **soft-delete por sweep** (assets/relações do cluster não
+  revistos → `is_active=false`).
+- `repository/CoverageRepository.kt` — `buildSnapshots(tenant)`: monta o `CoverageSnapshot` do grafo
+  (natureza via kind/edges; found via attributes/edges; **capacidades**: `monitor` por 2-hop
+  `dd_monitor→dd_service→workload`, `tracing`/`metrics` dos attributes do `dd_service`). `upsertResult`,
+  e `listForTenant`/`topRisks` que **filtram por `activeWorkloadUids`** (não mostram scorecard de
+  workload soft-deletado — consistência regra 13).
+- `routes/CoverageRoutes.kt` — `CoverageService.runSweep` (buildSnapshots → enriquece SLO via sloRepo →
+  `scoreopsClient.evaluateCoverage` → upsert).
+
+### Endpoints
+
+```
+POST /v1/operator/discovery/assets             # operator → grafo (X-Api-Key)          OperatorDiscoveryRoutes
+POST /v1/internal/coverage/evaluate?tenantId=  # trigger do sweep (X-Internal-Secret)  CoverageRoutes
+GET  /v1/coverage                              # leitura UI (JWT)                       CoverageRoutes
+GET  /v1/coverage/top-risks?limit=             # Top-N riscos (JWT)                     CoverageRoutes
+POST /v1/ai/coverage/report                    # proxy SSE → titlis-ai (relatório)      AiRoutes
+```
+
+> **Auth (lição aprendida em prod):** rotas autenticadas por JWT (`requireRole()`) **DEVEM** ficar
+> dentro de `authenticate(*protectedProviderNames("app-auth","okta-jwt"))` — senão o plugin não popula
+> o principal e tudo dá 401. Rotas internas (X-Internal-Secret / X-Api-Key) checam o header manualmente
+> e ficam fora do bloco.
+
+`ScoreopsClient.evaluateCoverage(snapshot)` → `POST /v1/scoring/coverage/evaluate`. O proxy
+`/v1/ai/coverage/report` (em `AiRoutes`, param `coverageRepo`) busca `coverageRepo.listForTenant`+
+`topRisks` + `ai_config` e faz `proxyAiSse` para o titlis-ai.
+
+> **Validado ao vivo (2026-06-21)** contra o Neon do Coolify via `scripts/e2e-observability-intelligence.sh`.

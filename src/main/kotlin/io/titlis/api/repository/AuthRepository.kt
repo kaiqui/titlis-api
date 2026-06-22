@@ -213,6 +213,16 @@ class AuthRepository(
             ?.toAuthenticatedUser()
     }
 
+    suspend fun getUserByClerkId(clerkUserId: String): AuthenticatedUser? = dbQuery {
+        baseUserQuery()
+            .andWhere {
+                (PlatformUsers.clerkUserId eq clerkUserId) and
+                    PlatformUsers.deletedAt.isNull()
+            }
+            .singleOrNull()
+            ?.toAuthenticatedUser(authProvider = "clerk")
+    }
+
     suspend fun resolveFederatedUser(identity: OktaIdentity, tenantSlugHint: String? = null): AuthenticatedUser? = dbQuery {
         val tenantId = identity.tenantId ?: resolveTenantIdBySlug(tenantSlugHint) ?: return@dbQuery null
 

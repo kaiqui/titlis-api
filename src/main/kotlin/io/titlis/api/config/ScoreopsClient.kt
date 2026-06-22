@@ -1,5 +1,7 @@
 package io.titlis.api.config
 
+import io.titlis.api.domain.CoverageResultDTO
+import io.titlis.api.domain.CoverageSnapshotDTO
 import io.titlis.api.dto.ScoreResultDTO
 import io.titlis.api.dto.WorkloadSnapshotDTO
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +31,15 @@ class ScoreopsClient(
             throw IllegalStateException("scoreops evaluate failed: ${resp.statusCode()}")
         }
         return json.decodeFromString<ScoreResultDTO>(resp.body())
+    }
+
+    suspend fun evaluateCoverage(snapshot: CoverageSnapshotDTO): CoverageResultDTO {
+        val body = json.encodeToString(snapshot)
+        val resp = post("/v1/scoring/coverage/evaluate", body)
+        if (resp.statusCode() >= 400) {
+            throw IllegalStateException("scoreops coverage failed: ${resp.statusCode()}")
+        }
+        return json.decodeFromString<CoverageResultDTO>(resp.body())
     }
 
     suspend fun get(path: String): HttpResponse<String> = withContext(Dispatchers.IO) {
